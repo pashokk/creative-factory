@@ -295,6 +295,19 @@ def healthz():
     return {"ok": True}
 
 
+ICONS = {"favicon.ico": "image/x-icon", "favicon-16.png": "image/png", "favicon-32.png": "image/png",
+         "apple-touch-icon.png": "image/png", "icon-192.png": "image/png", "icon-512.png": "image/png"}
+
+
+@app.get("/favicon.ico")
+@app.get("/static/{name}")
+def icon(name: str = "favicon.ico"):
+    if name not in ICONS:
+        raise HTTPException(404, "not found")
+    return FileResponse(os.path.join(STATIC, name), media_type=ICONS[name],
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/")
 def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
