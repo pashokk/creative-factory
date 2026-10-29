@@ -1,0 +1,9 @@
+.git
+work
+out
+data
+tests
+scripts
+__pycache__
+*.pyc
+.env

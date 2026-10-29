@@ -101,3 +101,13 @@ class Registry:
             ids.append(creative_id)
             self._save(state)
             return prefix, creative_id
+
+    def peek(self, game: str, manual_prefix: Optional[str] = None) -> tuple[str, int]:
+        """What reserve() would return right now, without recording anything."""
+        with self._locked():
+            state = self._load()
+            if self.scan is not None and self._stale(state):
+                self._merge_scan(state)
+                self._save(state)
+            prefix = naming.assign_prefix(game, state["prefixes"], manual_prefix)
+            return prefix, naming.next_id(state["ids"].get(prefix, []))

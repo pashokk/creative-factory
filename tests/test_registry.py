@@ -61,6 +61,13 @@ class RegistryTest(unittest.TestCase):
         self.now += 8 * 24 * 3600
         self.assertEqual(r.reserve("Word Cipher"), ("WC", 2))
 
+    def test_peek_does_not_reserve(self):
+        r = self.reg()
+        self.assertEqual(r.peek("Word Cipher"), ("WC", 1))
+        self.assertEqual(r.peek("Word Cipher"), ("WC", 1))
+        self.assertEqual(r.reserve("Word Cipher"), ("WC", 1))
+        self.assertEqual(r.peek("Word Cipher"), ("WC", 2))
+
     def test_force_refresh(self):
         r = self.reg()
         r.refresh()

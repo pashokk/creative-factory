@@ -14,7 +14,8 @@ Read first:
 - Prefix = initials of the first two words; single-word, numeric, non-ASCII or "The ..." names are questionable, so the wizard asks for an optional two-letter abbreviation and suggests the first two letters. Collisions get a digit (BW, BW1, BW2). My Little Spa keeps `SP`.
 - Ids: per-game counter from 001, exactly three digits, max 999, reserved at task start.
 - Drive prefix scan runs about once a week (cache with a timestamp); new prefixes and ids are recorded immediately under a lock.
-- Python with the standard library for now; `ffmpeg`/`ffprobe` for media.
+- Python; the core modules stay standard-library only, the web app uses FastAPI, Pillow and cryptography (`requirements.txt`). `ffmpeg`/`ffprobe` for media.
+- Hosting: Coolify (Dockerfile in the repo), Google sign-in for @appodeal.com, all storage in Google Drive.
 
 ## Credentials (never print, log or commit them)
 - ElevenLabs: host-scoped network secret for `api.elevenlabs.io`, header `xi-api-key`, no prefix. Code calls the API without a key; the proxy adds it.
@@ -27,8 +28,8 @@ Read first:
 - Output example: shared drive root `0AFIgRksacladUk9PVA`, folder `My Little Spa/2026/Creatives/SP[033]_No_Break_(22.10.26)/`.
 
 ## Status
-Done: `naming.py`, `sizing.py`, `qa.py`, `registry.py` with tests (`python3 -m unittest discover -s tests -t .`); service account access verified; footage probed; spike renders (`scripts/spike_word_cipher.py`) pass QA, voiceover only.
+Done: `naming.py`, `sizing.py`, `qa.py`, `registry.py`, `drive.py`, `pipeline.py`, `jobs.py`, `auth.py`, `web.py` with tests (`python3 -m unittest discover -s tests -t .`). Web UI wizard works end to end against Drive and ElevenLabs (tested with `DEV_USER`; Word Cipher WC001 rendered and uploaded, voiceover plus music). Dockerfile and `.env.example` ready for Coolify.
 Next, in order:
-1. Music: Pavel is fixing the ElevenLabs key (`music_generation` permission). Then generate a track and re-render the spike with `--music`.
-2. Brand assets: let the user upload assets (logo, icon, key art, store screenshots) per game for the packshot and end card, instead of pulling the icon from the XAPK. Store them in the game's Drive folder, record which file is the logo, and have the packshot read them (fall back to the XAPK icon).
-3. Real Drive prefix scan to feed `Registry`, and Drive upload of finished ads into `Game/Year/Creatives/XY[id]_Concept_(DD.MM.YY)/`.
+1. Deploy on Coolify: create the Google OAuth client (redirect `BASE_URL/auth/callback`), set the env vars from `.env.example`, mount `/data`, and test the real Google sign-in (not exercised yet).
+2. Hi-res end card backgrounds from design (the current Word Cipher one is upscaled from a 544 px example).
+3. AI help for hook and voiceover script; 16:9 output; more languages.

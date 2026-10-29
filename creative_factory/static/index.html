@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creative Factory</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --ink: #1b2330; --muted: #667085; --line: #dfe3ea;
+    --accent: #2563eb; --accent-ink: #fff; --ok: #15803d; --warn: #b45309; --bad: #b42318;
+    --okbg: #e7f6ec; --warnbg: #fdf3e1; --badbg: #fdeceb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --ink: #e8ecf3; --muted: #98a2b3; --line: #2c3340;
+      --accent: #5b8def; --accent-ink: #0b1220; --ok: #5fd08a; --warn: #f2b45a; --bad: #ff8a80;
+      --okbg: #14301f; --warnbg: #38290f; --badbg: #3a1714;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 Inter, system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  header nav { display: flex; gap: 4px; }
+  header .who { margin-left: auto; color: var(--muted); font-size: 13px; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 80px; }
+  .tab { background: none; border: 0; padding: 7px 12px; border-radius: 8px; color: var(--muted); font: inherit; cursor: pointer; }
+  .tab[aria-current="true"] { background: var(--bg); color: var(--ink); font-weight: 600; }
+  .steps { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .step { flex: 1; min-width: 120px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 13px; cursor: pointer; text-align: left; font-family: inherit; }
+  .step[aria-current="true"] { border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .step.done { color: var(--ok); }
+  section.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  p.hint { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 4px; }
+  input[type=text], input[type=number], select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 64px; resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 140px; }
+  button.btn { background: var(--accent); color: var(--accent-ink); border: 0; padding: 9px 16px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.btn.ghost { background: none; color: var(--accent); border: 1px solid var(--line); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: var(--okbg); color: var(--ok); } .pill.warn { background: var(--warnbg); color: var(--warn); } .pill.bad { background: var(--badbg); color: var(--bad); }
+  .pill.run { background: var(--bg); color: var(--accent); }
+  .note { padding: 9px 12px; border-radius: 8px; margin: 10px 0; font-size: 13px; }
+  .note.warn { background: var(--warnbg); color: var(--warn); } .note.bad { background: var(--badbg); color: var(--bad); } .note.ok { background: var(--okbg); color: var(--ok); }
+  .files { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; }
+  .files li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .files li:last-child { border-bottom: 0; }
+  .files .name { flex: 1; overflow-wrap: anywhere; }
+  .files .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .thumb { width: 38px; height: 38px; object-fit: cover; border-radius: 6px; background: var(--bg); }
+  .vo { display: grid; grid-template-columns: 84px 1fr auto; gap: 8px; margin-bottom: 8px; align-items: start; }
+  .vo textarea { min-height: 52px; }
+  .total { font-variant-numeric: tabular-nums; }
+  .log { font: 13px/1.5 ui-monospace, monospace; background: var(--bg); border-radius: 8px; padding: 10px 12px; margin-top: 10px; max-height: 240px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr.click { cursor: pointer; } tr.click:hover { background: var(--bg); }
+  a { color: var(--accent); }
+  .hidden { display: none !important; }
+  .signin { text-align: center; margin-top: 18vh; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Creative Factory</h1>
+  <nav id="nav" class="hidden">
+    <button class="tab" data-view="new" aria-current="true">New creative</button>
+    <button class="tab" data-view="jobs">Jobs</button>
+  </nav>
+  <span class="who" id="who"></span>
+</header>
+<main>
+  <div id="signin" class="signin hidden">
+    <h2>Sign in</h2>
+    <p class="hint">Use your Appodeal Google account.</p>
+    <a class="btn" href="/login"><button class="btn">Sign in with Google</button></a>
+  </div>
+
+  <div id="view-new" class="hidden">
+    <div class="steps" id="steps"></div>
+
+    <section class="card" data-step="0">
+      <h2>1. Game and concept</h2>
+      <p class="hint">Games are the folders in the Creatives shared drive. Output goes to <code>Game / year / Creatives / XY[id]_Concept_(date)</code>.</p>
+      <label for="game">Game</label>
+      <select id="game"></select>
+      <div class="actions"><button class="btn ghost" id="newGameToggle" type="button">Add a new game</button></div>
+      <div id="newGame" class="hidden">
+        <label for="newGameName">New game name</label>
+        <div class="row"><input type="text" id="newGameName" placeholder="Word Cipher"><button class="btn" id="newGameBtn" type="button" style="flex:0 0 auto">Create</button></div>
+      </div>
+      <div id="prefixBox"></div>
+      <label for="concept">Concept name</label>
+      <input type="text" id="concept" placeholder="Hidden Phrase" maxlength="40">
+      <p class="hint">Words only; becomes the folder name, e.g. <code>WC[001]_Hidden_Phrase_(29.10.26)</code>.</p>
+      <div class="actions"><button class="btn" data-next>Next: assets</button></div>
+    </section>
+
+    <section class="card" data-step="1">
+      <h2>2. Assets and footage</h2>
+      <p class="hint">Stored in the game's Drive folder (<code>year/Assets</code>, footage in <code>Assets/Footage</code>), so they are reused next time.</p>
+      <div class="row">
+        <div><label>App logo (required)</label><input type="file" id="upLogo" accept=".png,.jpg,.jpeg,.webp"></div>
+        <div><label>End card background (optional)</label><input type="file" id="upBg" accept=".png,.jpg,.jpeg,.webp"></div>
+        <div><label>Gameplay footage</label><input type="file" id="upFootage" accept=".mp4,.mov"></div>
+      </div>
+      <div class="actions"><button class="btn ghost" id="uploadBtn" type="button">Upload selected</button><span id="uploadMsg" class="hint" style="margin:0"></span></div>
+      <label>Logo</label><ul class="files" id="logoList"></ul>
+      <label>End card background</label><ul class="files" id="bgList"></ul>
+      <p class="hint" style="margin-top:6px">A clean background has no logo, title or arrow on it; those are drawn on top. Without one, a plain gradient is used.</p>
+      <label>Footage</label><ul class="files" id="footageList"></ul>
+      <div class="actions"><button class="btn ghost" data-prev>Back</button><button class="btn" data-next>Next: creative</button></div>
+    </section>
+
+    <section class="card" data-step="2">
+      <h2>3. Creative</h2>
+      <div class="row">
+        <div><label for="trimStart">Footage start (s)</label><input type="number" id="trimStart" value="0" min="0" step="0.5"></div>
+        <div><label for="trimLen">Gameplay length (s)</label><input type="number" id="trimLen" value="40" min="20" max="53" step="0.5"></div>
+        <div><label>Total with end card</label><div class="total" id="total" style="padding:8px 0"></div></div>
+      </div>
+      <div class="row">
+        <div><label for="cropTop">Crop top (%)</label><input type="number" id="cropTop" value="4" min="0" max="30" step="0.5"></div>
+        <div><label for="cropBottom">Crop bottom (%)</label><input type="number" id="cropBottom" value="0" min="0" max="30" step="0.5"></div>
+      </div>
+      <p class="hint">Crop hides the phone status bar and any recorder watermark. Footage that is not 9:16 is placed on a blurred copy of itself.</p>
+      <label for="hook">Hook text (first 3.5 s; line break allowed)</label>
+      <textarea id="hook" placeholder="Can you crack&#10;the hidden phrase?"></textarea>
+      <label>Voiceover lines <span class="hint" style="font-weight:400">(start second in the final video; the last line usually lands on the end card)</span></label>
+      <div id="vo"></div>
+      <div class="actions"><button class="btn ghost" id="addLine" type="button">Add line</button><button class="btn ghost" id="spread" type="button">Spread evenly</button></div>
+      <div class="row">
+        <div><label for="voice">Voice (ElevenLabs)</label><select id="voice"></select></div>
+        <div><label for="lang">Language code</label><input type="text" id="lang" value="EN" maxlength="2"></div>
+      </div>
+      <label for="music">Music prompt (ElevenLabs, leave empty for none)</label>
+      <textarea id="music">Light upbeat puzzle-game background music, soft piano and plucked strings, warm and curious, no vocals</textarea>
+      <label>Sizes</label>
+      <div class="row" style="gap:20px"><label style="font-weight:400"><input type="checkbox" class="ratio" value="9x16" checked> 9:16</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="4x5" checked> 4:5</label></div>
+      <div class="actions"><button class="btn ghost" data-prev>Back</button><button class="btn" data-next>Next: review</button></div>
+    </section>
+
+    <section class="card" data-step="3">
+      <h2>4. Review and render</h2>
+      <div id="review"></div>
+      <div id="problems"></div>
+      <div class="actions"><button class="btn ghost" data-prev>Back</button><button class="btn" id="render">Render and upload to Drive</button></div>
+      <div id="jobView"></div>
+    </section>
+  </div>
+
+  <div id="view-jobs" class="hidden">
+    <section class="card"><h2>Jobs</h2><div id="jobsTable"></div><div id="jobDetail"></div></section>
+  </div>
+</main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); kids.flat().forEach(k => n.append(k)); return n; };
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  if (r.status === 401) { showSignIn(); throw new Error('sign in required'); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+};
+const mb = n => (n / 1e6).toFixed(1) + ' MB';
+const state = { step: 0, game: null, assets: [], footage: [], logo: null, bg: null, footageId: null, prefix: null, voices: [], lines: [], job: null };
+
+function showSignIn() { $('#signin').classList.remove('hidden'); $('#nav').classList.add('hidden'); $('#view-new').classList.add('hidden'); $('#view-jobs').classList.add('hidden'); }
+
+// ---- steps ---------------------------------------------------------------
+const STEPS = ['Game', 'Assets', 'Creative', 'Render'];
+function renderSteps() {
+  const bar = $('#steps'); bar.replaceChildren();
+  STEPS.forEach((name, i) => bar.append(el('button', { className: 'step' + (i < state.step ? ' done' : ''), textContent: `${i + 1}. ${name}`,
+    onclick: () => { if (i <= state.step || canEnter(i)) go(i); } })));
+  bar.children[state.step].setAttribute('aria-current', 'true');
+  $$('section[data-step]').forEach(s => s.classList.toggle('hidden', +s.dataset.step !== state.step));
+}
+function canEnter(i) { return i === 0 || (state.game && $('#concept').value.trim()); }
+function go(i) { state.step = i; renderSteps(); if (i === 3) renderReview(); window.scrollTo(0, 0); }
+$$('[data-next]').forEach(b => b.onclick = () => {
+  if (state.step === 0 && !(state.game && $('#concept').value.trim() && prefixOk())) return alert('Pick a game, give the concept a name, and set the prefix if asked.');
+  if (state.step === 1 && !(state.logo && state.footageId)) return alert('Choose a logo and a footage file first.');
+  go(state.step + 1);
+});
+$$('[data-prev]').forEach(b => b.onclick = () => go(state.step - 1));
+
+// ---- game ----------------------------------------------------------------
+const prefixOk = () => state.prefix && !state.prefix.needs_manual;
+async function loadGames(selectId) {
+  const games = await api('/api/games');
+  const sel = $('#game'); sel.replaceChildren(el('option', { value: '', textContent: 'Choose a game…' }));
+  games.forEach(g => sel.append(el('option', { value: g.id, textContent: g.name })));
+  if (selectId) sel.value = selectId;
+  sel.onchange = () => pickGame(games.find(g => g.id === sel.value));
+}
+async function pickGame(g, manual = '') {
+  state.game = g || null; state.logo = state.bg = state.footageId = null;
+  const box = $('#prefixBox'); box.replaceChildren();
+  if (!g) return;
+  const p = await api(`/api/prefix?game=${encodeURIComponent(g.name)}&manual=${encodeURIComponent(manual)}`);
+  state.prefix = p;
+  if (p.needs_manual) {
+    box.append(el('div', { className: 'note warn', textContent: `This name does not give a clear two-letter prefix. Type a two-letter abbreviation${p.suggestion ? ` (suggestion: ${p.suggestion})` : ''}.` }),
+      el('input', { type: 'text', maxLength: 2, placeholder: p.suggestion || 'XY', value: manual, oninput: e => { if (e.target.value.length === 2) pickGame(g, e.target.value); } }));
+  } else {
+    box.append(el('div', { className: 'note ok', textContent: `Next creative id: ${p.next_id}` }));
+  }
+  state.manual = manual;
+  loadAssets();
+}
+$('#newGameToggle').onclick = () => $('#newGame').classList.toggle('hidden');
+$('#newGameBtn').onclick = async () => {
+  const fd = new FormData(); fd.append('name', $('#newGameName').value);
+  try { const g = await api('/api/games', { method: 'POST', body: fd }); await loadGames(g.id); $('#game').dispatchEvent(new Event('change')); $('#newGame').classList.add('hidden'); }
+  catch (e) { alert(e.message); }
+};
+
+// ---- assets --------------------------------------------------------------
+async function loadAssets() {
+  if (!state.game) return;
+  const r = await api(`/api/games/${state.game.id}/assets`);
+  state.assets = r.assets; state.footage = r.footage;
+  const logos = r.assets.filter(a => a.role === 'logo'), bgs = r.assets.filter(a => a.role === 'endcard_bg');
+  if (!logos.find(a => a.id === state.logo)) state.logo = logos[0]?.id || null;
+  if (!bgs.find(a => a.id === state.bg)) state.bg = null;
+  if (!r.footage.find(a => a.id === state.footageId)) state.footageId = r.footage[0]?.id || null;
+  renderAssets();
+}
+function assetList(ul, items, key, allowNone) {
+  ul.replaceChildren();
+  if (allowNone) ul.append(el('li', {}, el('input', { type: 'radio', name: key, checked: !state[key === 'footage' ? 'footageId' : key], onchange: () => { state.bg = null; } }), el('span', { className: 'name', textContent: 'None (plain gradient)' })));
+  if (!items.length && !allowNone) ul.append(el('li', {}, el('span', { className: 'meta', textContent: 'Nothing uploaded yet.' })));
+  items.forEach(a => {
+    const field = key === 'logo' ? 'logo' : key === 'bg' ? 'bg' : 'footageId';
+    const li = el('li', {}, el('input', { type: 'radio', name: key, checked: state[field] === a.id, onchange: () => { state[field] = a.id; } }));
+    if (a.mime.startsWith('image/')) li.append(el('img', { className: 'thumb', src: `/api/files/${a.id}/image`, alt: '' }));
+    li.append(el('span', { className: 'name', textContent: a.name.replace(/^(logo|endcard_bg)__/, '') }), el('span', { className: 'meta', textContent: mb(a.size) }));
+    ul.append(li);
+  });
+}
+function renderAssets() {
+  assetList($('#logoList'), state.assets.filter(a => a.role === 'logo'), 'logo', false);
+  assetList($('#bgList'), state.assets.filter(a => a.role === 'endcard_bg'), 'bg', true);
+  assetList($('#footageList'), state.footage, 'footage', false);
+}
+$('#uploadBtn').onclick = async () => {
+  if (!state.game) return alert('Choose a game first.');
+  const jobs = [['upLogo', 'logo'], ['upBg', 'endcard_bg'], ['upFootage', 'footage']].filter(([id]) => $('#' + id).files[0]);
+  if (!jobs.length) return;
+  $('#uploadBtn').disabled = true;
+  try {
+    for (const [id, kind] of jobs) {
+      $('#uploadMsg').textContent = `Uploading ${$('#' + id).files[0].name} to Drive…`;
+      const fd = new FormData(); fd.append('kind', kind); fd.append('file', $('#' + id).files[0]);
+      const up = await api(`/api/games/${state.game.id}/assets`, { method: 'POST', body: fd });
+      if (kind === 'logo') state.logo = up.id; if (kind === 'endcard_bg') state.bg = up.id; if (kind === 'footage') state.footageId = up.id;
+      $('#' + id).value = '';
+    }
+    $('#uploadMsg').textContent = 'Uploaded.';
+    await loadAssets();
+  } catch (e) { $('#uploadMsg').textContent = ''; alert(e.message); }
+  $('#uploadBtn').disabled = false;
+};
+
+// ---- creative ------------------------------------------------------------
+const total = () => (+$('#trimLen').value || 0) + 5;
+function updateTotal() { const t = total(), ok = t >= 30 && t <= 58; $('#total').textContent = `${t.toFixed(1)} s ${ok ? '' : '(must be 30–58 s)'}`; $('#total').style.color = ok ? '' : 'var(--bad)'; }
+function lineRow(line, i) {
+  const start = el('input', { type: 'number', min: 0, step: 0.5, value: line.start, title: 'Start second', oninput: e => { state.lines[i].start = +e.target.value; } });
+  const text = el('textarea', { value: line.text, placeholder: i === 0 ? "Think you're good at word puzzles? …" : 'Next line…', oninput: e => { state.lines[i].text = e.target.value; } });
+  const del = el('button', { className: 'btn ghost', type: 'button', textContent: '✕', title: 'Remove line', onclick: () => { state.lines.splice(i, 1); renderLines(); } });
+  return el('div', { className: 'vo' }, start, text, del);
+}
+function renderLines() { const box = $('#vo'); box.replaceChildren(...state.lines.map(lineRow)); }
+function spread() {
+  const n = state.lines.length, t = total();
+  state.lines.forEach((l, i) => { l.start = n === 1 ? 0.3 : +(i === 0 ? 0.3 : i === n - 1 ? t - 4.5 : 0.3 + (t - 4.8) * i / (n - 1)).toFixed(1); });
+  renderLines();
+}
+$('#addLine').onclick = () => { state.lines.push({ start: 0, text: '' }); spread(); };
+$('#spread').onclick = spread;
+['trimLen'].forEach(id => $('#' + id).oninput = updateTotal);
+async function loadVoices() {
+  try {
+    state.voices = await api('/api/voices');
+    const sel = $('#voice'); sel.replaceChildren(...state.voices.map(v => el('option', { value: v.id, textContent: v.name })));
+    const pref = state.voices.find(v => v.name.startsWith('Jessica')); if (pref) sel.value = pref.id;
+  } catch (e) { $('#voice').replaceChildren(el('option', { textContent: 'Could not load voices: ' + e.message })); }
+}
+
+// ---- review and render -----------------------------------------------------
+function currentSpec() {
+  return {
+    game_folder_id: state.game?.id, game: state.game?.name, concept: $('#concept').value.trim(),
+    footage_id: state.footageId, logo_id: state.logo, endcard_bg_id: state.bg || null,
+    manual_prefix: state.manual || null, lang: $('#lang').value.toUpperCase(),
+    trim_start: +$('#trimStart').value, trim_len: +$('#trimLen').value,
+    crop_top_pct: +$('#cropTop').value, crop_bottom_pct: +$('#cropBottom').value,
+    hook: $('#hook').value, lines: state.lines.filter(l => l.text.trim()), voice_id: $('#voice').value,
+    music_prompt: $('#music').value.trim(), ratios: $$('.ratio').filter(c => c.checked).map(c => c.value),
+  };
+}
+function renderReview() {
+  const s = currentSpec(), name = id => [...state.assets, ...state.footage].find(a => a.id === id)?.name.replace(/^(logo|endcard_bg)__/, '') || '—';
+  const rows = [['Game', s.game], ['Next id', state.prefix?.next_id], ['Concept', s.concept], ['Footage', `${name(s.footage_id)} (${s.trim_start}s + ${s.trim_len}s)`],
+    ['Logo', name(s.logo_id)], ['End card background', s.endcard_bg_id ? name(s.endcard_bg_id) : 'plain gradient'], ['Voice lines', s.lines.length],
+    ['Music', s.music_prompt ? 'ElevenLabs music' : 'none'], ['Sizes', s.ratios.join(', ')], ['Total length', `${(s.trim_len + 5).toFixed(1)} s`]];
+  $('#review').replaceChildren(el('table', {}, ...rows.map(([k, v]) => el('tr', {}, el('th', { textContent: k }), el('td', { textContent: String(v) })))));
+  $('#problems').replaceChildren();
+}
+$('#render').onclick = async () => {
+  $('#render').disabled = true; $('#problems').replaceChildren();
+  try { const job = await api('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentSpec()) }); watch(job.id, $('#jobView')); }
+  catch (e) { $('#problems').append(el('div', { className: 'note bad', textContent: e.message })); $('#render').disabled = false; }
+};
+
+// ---- jobs --------------------------------------------------------------------
+const pill = s => el('span', { className: 'pill ' + ({ done: 'ok', failed: 'bad', running: 'run', queued: 'warn' }[s] || ''), textContent: s });
+function renderJob(job, target) {
+  const box = el('div', {});
+  box.append(el('div', { className: 'actions' }, pill(job.status), el('span', { className: 'hint', style: 'margin:0', textContent: `${job.spec.game} · ${job.spec.concept} · ${job.id}` })));
+  if (job.error) box.append(el('div', { className: 'note bad', textContent: job.error }));
+  const log = el('div', { className: 'log' }, ...job.steps.map(s => el('div', { textContent: new Date(s.t * 1000).toLocaleTimeString() + '  ' + s.text })));
+  if (job.steps.length) box.append(log);
+  if (job.result) {
+    const r = job.result;
+    box.append(el('div', { className: 'note ok', textContent: `Saved to Drive as ${r.folder_name}` }));
+    r.warnings.forEach(w => box.append(el('div', { className: 'note warn', textContent: w })));
+    box.append(el('ul', { className: 'files' }, ...r.files.map(f => el('li', {},
+      el('span', { className: 'name' }, f.url ? el('a', { href: f.url, target: '_blank', rel: 'noopener', textContent: f.name }) : f.name),
+      el('span', { className: 'meta', textContent: mb(f.size) }),
+      el('span', { className: 'pill ' + (f.qa_ok ? 'ok' : 'bad'), textContent: f.qa_ok ? 'QA passed' : 'QA: ' + f.qa_problems.join('; ') })))));
+  }
+  target.replaceChildren(box); log.scrollTop = log.scrollHeight;
+}
+let poll = null;
+function watch(id, target) {
+  clearInterval(poll);
+  const tick = async () => { try { const job = await api('/api/jobs/' + id); renderJob(job, target); if (job.status === 'done' || job.status === 'failed') { clearInterval(poll); $('#render').disabled = false; } } catch (e) { clearInterval(poll); } };
+  tick(); poll = setInterval(tick, 2000);
+}
+async function loadJobs() {
+  const jobs = await api('/api/jobs');
+  const t = el('table', {}, el('tr', {}, ...['When', 'Game', 'Concept', 'By', 'Status'].map(h => el('th', { textContent: h }))),
+    ...jobs.map(j => { const tr = el('tr', { className: 'click', onclick: () => watch(j.id, $('#jobDetail')) },
+      el('td', { textContent: new Date(j.created * 1000).toLocaleString() }), el('td', { textContent: j.game }), el('td', { textContent: j.concept }), el('td', { textContent: j.user.split('@')[0] }), el('td', {}, pill(j.status))); return tr; }));
+  $('#jobsTable').replaceChildren(jobs.length ? t : el('p', { className: 'hint', textContent: 'No jobs yet.' }));
+}
+function view(name) {
+  $$('.tab').forEach(t => t.setAttribute('aria-current', t.dataset.view === name));
+  $('#view-new').classList.toggle('hidden', name !== 'new'); $('#view-jobs').classList.toggle('hidden', name !== 'jobs');
+  if (name === 'jobs') loadJobs();
+}
+$$('.tab').forEach(t => t.onclick = () => view(t.dataset.view));
+
+// ---- start ---------------------------------------------------------------------
+(async () => {
+  try {
+    const me = await fetch('/api/me'); if (me.status === 401) return showSignIn();
+    $('#who').textContent = (await me.json()).user; $('#nav').classList.remove('hidden');
+    state.lines = [{ start: 0.3, text: '' }, { start: 0, text: '' }, { start: 0, text: '' }]; updateTotal(); spread();
+    renderSteps(); view('new'); await Promise.all([loadGames(), loadVoices()]);
+  } catch (e) { console.error(e); }
+})();
+</script>
+</body>
+</html>
