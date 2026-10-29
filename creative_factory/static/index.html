@@ -366,10 +366,10 @@ function renderJob(job, target) {
   if (job.steps.length) box.append(log);
   if (job.result) {
     const r = job.result;
-    box.append(el('div', { className: 'note ok', textContent: `Saved to Drive as ${r.folder_name}` }));
+    box.append(el('div', { className: 'note ok' }, `Saved to Drive as ${r.folder_name} · `, el('a', { href: `https://drive.google.com/drive/folders/${r.folder_id}`, target: '_blank', rel: 'noopener', textContent: 'Open the folder in Drive' })));
     r.warnings.forEach(w => box.append(el('div', { className: 'note warn', textContent: w })));
     box.append(el('ul', { className: 'files' }, ...r.files.map(f => el('li', {},
-      el('span', { className: 'name' }, f.url ? el('a', { href: f.url, target: '_blank', rel: 'noopener', textContent: f.name }) : f.name),
+      el('span', { className: 'name', textContent: f.name }),
       el('span', { className: 'meta', textContent: mb(f.size) }),
       el('span', { className: 'pill ' + (f.qa_ok ? 'ok' : 'bad'), textContent: f.qa_ok ? 'QA passed' : 'QA: ' + f.qa_problems.join('; ') })))));
   }
