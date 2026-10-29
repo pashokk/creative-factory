@@ -1,10 +1,10 @@
 """Spike: one 9:16 and one 4:5 ad for Word Cipher from screen-recording footage.
 
-Hook text, ElevenLabs voiceover, packshot, 9:16 master, 4:5 resize with blurred
+Hook text, ElevenLabs voiceover, animated end card, 9:16 master, 4:5 resize with blurred
 borders, then the QA gate. Music is optional (--music FILE) because the current
 ElevenLabs key lacks the music_generation permission.
 
-    python3 scripts/spike_word_cipher.py --footage v2_2.mp4 --icon icon.png --work work
+    python3 scripts/spike_word_cipher.py --footage v2_2.mp4 --logo logo.jpg --endcard-ref endcard_example.webp --work work
 """
 
 import argparse
@@ -50,24 +50,65 @@ def tts(text: str, path: str) -> None:
         f.write(r.read())
 
 
-def packshot_png(icon_path: str, path: str, w: int = 1080, h: int = 1920) -> None:
-    img = Image.new("RGB", (w, h))
-    top, bottom = (196, 224, 245), (150, 190, 226)
-    d = ImageDraw.Draw(img)
-    for y in range(h):
-        t = y / h
-        d.line([(0, y), (w, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)))
-    icon = Image.open(icon_path).convert("RGBA").resize((460, 460), Image.LANCZOS)
-    mask = Image.new("L", icon.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, *icon.size], 100, fill=255)
-    img.paste(icon, ((w - 460) // 2, 560), mask)
-    d = ImageDraw.Draw(img)
-    title = ImageFont.truetype(FONT, 120)
-    d.text((w // 2, 1150), GAME, font=title, fill=(23, 52, 102), anchor="mm")
-    btn = (w // 2 - 330, 1300, w // 2 + 330, 1450)
-    d.rounded_rectangle(btn, 75, fill=(46, 160, 90))
-    d.text((w // 2, 1375), "Download now", font=ImageFont.truetype(FONT, 66), fill="white", anchor="mm")
-    img.save(path)
+def clean_reference(ref_path: str, w: int, h: int) -> Image.Image:
+    """Example end card with its logo, title and arrow painted out, scaled to w x h.
+
+    The kept art (parchment, corner illustrations) is soft because the example is
+    only 544 px wide; a hi-res background from design would replace this.
+    """
+    from PIL import ImageFilter
+
+    img = Image.open(ref_path).convert("RGB")
+    sx, sy = img.width / 544, img.height / 966
+    # (hole, clean parchment strip to copy from), in 544 x 966 coordinates
+    patches = [((100, 205, 460, 610), (100, 625, 460, 720)), ((225, 795, 320, 940), (225, 625, 320, 720))]
+    for (x0, y0, x1, y1), (cx0, cy0, cx1, cy1) in patches:
+        box = (int(x0 * sx), int(y0 * sy), int(x1 * sx), int(y1 * sy))
+        src = img.crop((int(cx0 * sx), int(cy0 * sy), int(cx1 * sx), int(cy1 * sy)))
+        bw, bh = box[2] - box[0], box[3] - box[1]
+        fill = Image.new("RGB", (bw, bh))
+        flip, y = False, 0
+        while y < bh:  # mirror-tile the strip so repeats do not show seams
+            tile = src.transpose(Image.FLIP_TOP_BOTTOM) if flip else src
+            fill.paste(tile, (0, y))
+            y, flip = y + src.height, not flip
+        mask = Image.new("L", (bw, bh), 0)
+        ImageDraw.Draw(mask).rectangle([14, 14, bw - 14, bh - 14], fill=255)
+        img.paste(fill, box[:2], mask.filter(ImageFilter.GaussianBlur(10)))
+    return img.resize((w, h), Image.LANCZOS)
+
+
+def endcard_frames(logo_path: str, ref_path: str, out_dir: str, fps: int = 30,
+                   w: int = 1080, h: int = 1920) -> None:
+    """End card: logo, two-tone title, animated down-arrow chevrons (no button)."""
+    import math
+
+    os.makedirs(out_dir, exist_ok=True)
+    bg = clean_reference(ref_path, w, h)
+    logo = Image.open(logo_path).convert("RGB").crop((34, 34, 478, 478)).resize((560, 560), Image.LANCZOS)
+    mask = Image.new("L", logo.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, *logo.size], 125, fill=255)
+    bg.paste(logo, ((w - 560) // 2, 470), mask)
+    d = ImageDraw.Draw(bg)
+    font = ImageFont.truetype(FONT, 122)
+    word, cipher = "Word ", "Cipher"
+    ww, cw = d.textlength(word, font=font), d.textlength(cipher, font=font)
+    x = (w - ww - cw) / 2
+    d.text((x, 1130), word, font=font, fill=(18, 40, 84), anchor="lm")
+    d.text((x + ww, 1130), cipher, font=font, fill=(42, 118, 208), anchor="lm")
+    chevrons = 4
+    for n in range(int(PACK_LEN * fps)):
+        frame = bg.copy()
+        layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        for i in range(chevrons):
+            phase = (n / fps) / 1.2 - i / chevrons * 0.6  # a wave running down the stack
+            alpha = 0.25 + 0.75 * max(0.0, math.cos((phase % 1.0) * 2 * math.pi - math.pi)) ** 2
+            y = 1560 + i * 72
+            col = (int(120 - i * 25), int(170 - i * 25), 235, int(255 * alpha))
+            ld.line([(480, y), (540, y + 46), (600, y)], fill=col, width=26, joint="curve")
+        frame.paste(layer, (0, 0), layer)
+        frame.save(os.path.join(out_dir, f"{n:03d}.png"))
 
 
 def build_voiceover(work: str, music: str | None, total_s: float, out: str) -> None:
@@ -92,7 +133,7 @@ def build_voiceover(work: str, music: str | None, total_s: float, out: str) -> N
         "-t", str(total_s), "-c:a", "aac", "-b:a", "128k", out)
 
 
-def render_master(footage: str, pack_png: str, audio: str, out: str, total_s: float) -> None:
+def render_master(footage: str, pack_dir: str, audio: str, out: str, total_s: float) -> None:
     hook_file = os.path.join(os.path.dirname(out), "hook.txt")
     with open(hook_file, "w") as f:
         f.write(HOOK)
@@ -102,7 +143,7 @@ def render_master(footage: str, pack_png: str, audio: str, out: str, total_s: fl
           f"[1:v]fps=30,setsar=1,fade=t=in:d=0.4[p];[g][p]concat=n=2:v=1:a=0[v]")
     kbps = sizing.video_bitrate(total_s) // 1000
     run("ffmpeg", "-y", "-ss", str(CUT_START), "-t", str(CUT_LEN), "-i", footage,
-        "-loop", "1", "-t", str(PACK_LEN), "-i", pack_png, "-i", audio,
+        "-framerate", "30", "-i", os.path.join(pack_dir, "%03d.png"), "-i", audio,
         "-filter_complex", fc, "-map", "[v]", "-map", "2:a", "-c:v", "libx264", "-preset", "slow",
         "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k", "-pix_fmt", "yuv420p",
         "-c:a", "copy", "-movflags", "+faststart", "-t", str(total_s), out)
@@ -121,7 +162,8 @@ def render_4x5(master: str, out: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--footage", required=True)
-    ap.add_argument("--icon", required=True)
+    ap.add_argument("--logo", required=True, help="hi-res app logo")
+    ap.add_argument("--endcard-ref", required=True, help="example end card for the background art")
     ap.add_argument("--work", default="work")
     ap.add_argument("--music")
     ap.add_argument("--lang", default="EN")
@@ -129,8 +171,8 @@ def main() -> None:
     os.makedirs(args.work, exist_ok=True)
     total = CUT_LEN + PACK_LEN
     prefix, cid = Registry(os.path.join(args.work, "registry.json")).reserve(GAME)
-    pack = os.path.join(args.work, "packshot.png")
-    packshot_png(args.icon, pack)
+    pack = os.path.join(args.work, "packshot")
+    endcard_frames(args.logo, args.endcard_ref, pack)
     audio = os.path.join(args.work, "audio.m4a")
     build_voiceover(args.work, args.music, total, audio)
     master = os.path.join(args.work, "master_9x16.mp4")
