@@ -21,7 +21,7 @@ from .registry import Registry
 FONT = "/usr/share/fonts/opentype/inter/Inter-Bold.otf"
 ENDCARD_S = 5.0
 FPS = 30
-RATIOS = {"9x16": (1080, 1920), "4x5": (1080, 1350)}
+RATIOS = {"9x16": (1080, 1920), "4x5": (1080, 1350), "16x9": (1920, 1080)}
 MIN_TOTAL_S, MAX_TOTAL_S = 30, 58  # never 60 s; one second of slack under the 59 s limit
 Progress = Callable[[str], None]
 

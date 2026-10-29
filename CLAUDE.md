@@ -28,8 +28,8 @@ Read first:
 - Output example: shared drive root `0AFIgRksacladUk9PVA`, folder `My Little Spa/2026/Creatives/SP[033]_No_Break_(22.10.26)/`.
 
 ## Status
-Done: `naming.py`, `sizing.py`, `qa.py`, `registry.py`, `drive.py`, `pipeline.py`, `jobs.py`, `auth.py`, `web.py` with tests (`python3 -m unittest discover -s tests -t .`). Web UI wizard works end to end against Drive and ElevenLabs (tested with `DEV_USER`; Word Cipher WC001 rendered and uploaded, voiceover plus music). Dockerfile and `.env.example` ready for Coolify.
+Done: `naming.py`, `sizing.py`, `qa.py`, `registry.py`, `drive.py`, `pipeline.py`, `jobs.py`, `auth.py`, `web.py` with tests (`python3 -m unittest discover -s tests -t .`). Web UI wizard works end to end against Drive and ElevenLabs (tested with `DEV_USER`; Word Cipher WC001 rendered and uploaded, voiceover plus music). Dockerfile and `.env.example` ready for Coolify. Deployed at https://creative-factory.appodeal.me from github.com/pashokk/creative-factory (copy of this repo). AI suggestions (`analysis.py`) and 16:9 output added.
 Next, in order:
 1. Deploy on Coolify: create the Google OAuth client (redirect `BASE_URL/auth/callback`), set the env vars from `.env.example`, mount `/data`, and test the real Google sign-in (not exercised yet).
 2. Hi-res end card backgrounds from design (the current Word Cipher one is upscaled from a 544 px example).
-3. AI help for hook and voiceover script; 16:9 output; more languages.
+3. Check the AI suggestion quality on real footage (it needs `ANTHROPIC_API_KEY` in Coolify; only the wiring was tested, not the model's answers); more languages; native 16:9 masters for landscape games.

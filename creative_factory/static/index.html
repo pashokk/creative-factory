@@ -120,6 +120,13 @@
 
     <section class="card" data-step="2">
       <h2>3. Creative</h2>
+      <div id="aiBox" class="note ok" style="margin-bottom:14px">
+        <div id="aiStatus"><strong>AI suggestion</strong> — it looks at the footage and fills the cut, crop, hook, voiceover and music below. You can edit anything.</div>
+        <label for="brief" style="margin-top:8px">What should the ad stress? (optional)</label>
+        <input type="text" id="brief" placeholder="e.g. relaxing, for word-game fans; show the hint buttons">
+        <div class="actions"><button class="btn" id="aiRun" type="button">Suggest with AI</button><span id="aiMsg" class="hint" style="margin:0"></span></div>
+        <div id="aiWhy" class="hint" style="margin:8px 0 0"></div>
+      </div>
       <div class="row">
         <div><label for="trimStart">Footage start (s)</label><input type="number" id="trimStart" value="0" min="0" step="0.5"></div>
         <div><label for="trimLen">Gameplay length (s)</label><input type="number" id="trimLen" value="40" min="20" max="53" step="0.5"></div>
@@ -142,7 +149,7 @@
       <label for="music">Music prompt (ElevenLabs, leave empty for none)</label>
       <textarea id="music">Light upbeat puzzle-game background music, soft piano and plucked strings, warm and curious, no vocals</textarea>
       <label>Sizes</label>
-      <div class="row" style="gap:20px"><label style="font-weight:400"><input type="checkbox" class="ratio" value="9x16" checked> 9:16</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="4x5" checked> 4:5</label></div>
+      <div class="row" style="gap:20px"><label style="font-weight:400"><input type="checkbox" class="ratio" value="9x16" checked> 9:16</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="4x5" checked> 4:5</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="16x9" checked> 16:9</label></div>
       <div class="actions"><button class="btn ghost" data-prev>Back</button><button class="btn" data-next>Next: review</button></div>
     </section>
 
@@ -186,7 +193,7 @@ function renderSteps() {
   $$('section[data-step]').forEach(s => s.classList.toggle('hidden', +s.dataset.step !== state.step));
 }
 function canEnter(i) { return i === 0 || (state.game && $('#concept').value.trim()); }
-function go(i) { state.step = i; renderSteps(); if (i === 3) renderReview(); window.scrollTo(0, 0); }
+function go(i) { state.step = i; renderSteps(); if (i === 3) renderReview(); if (i === 2 && state.aiOn && aiFor !== state.footageId) runAi(); window.scrollTo(0, 0); }
 $$('[data-next]').forEach(b => b.onclick = () => {
   if (state.step === 0 && !(state.game && $('#concept').value.trim() && prefixOk())) return alert('Pick a game, give the concept a name, and set the prefix if asked.');
   if (state.step === 1 && !(state.logo && state.footageId)) return alert('Choose a logo and a footage file first.');
@@ -298,6 +305,31 @@ async function loadVoices() {
   } catch (e) { $('#voice').replaceChildren(el('option', { textContent: 'Could not load voices: ' + e.message })); }
 }
 
+// ---- AI suggestion ----------------------------------------------------------------
+let aiFor = null;
+async function runAi() {
+  if (!state.game || !state.footageId) return;
+  $('#aiRun').disabled = true; $('#aiBox').className = 'note ok'; $('#aiMsg').textContent = 'Looking at the footage… about a minute.'; $('#aiWhy').textContent = '';
+  try {
+    const { id } = await api('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game: state.game.name, footage_id: state.footageId, brief: $('#brief').value, lang: $('#lang').value }) });
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2500));
+      const t = await api('/api/analyze/' + id);
+      if (t.status === 'running') continue;
+      if (t.status === 'failed') throw new Error(t.error);
+      const r = t.result;
+      $('#trimStart').value = r.trim_start; $('#trimLen').value = r.trim_len; $('#cropTop').value = r.crop_top_pct;
+      $('#cropBottom').value = r.crop_bottom_pct; $('#hook').value = r.hook; $('#music').value = r.music_prompt || $('#music').value;
+      state.lines = r.lines.length ? r.lines : state.lines; renderLines(); updateTotal();
+      $('#aiMsg').textContent = 'Filled in below. Check it and edit what you like.'; $('#aiWhy').textContent = r.rationale;
+      aiFor = state.footageId; break;
+    }
+  } catch (e) { $('#aiBox').className = 'note bad'; $('#aiMsg').textContent = ''; $('#aiWhy').textContent = 'AI suggestion failed: ' + e.message + ' You can fill the fields by hand.'; }
+  $('#aiRun').disabled = false;
+}
+$('#aiRun').onclick = runAi;
+
 // ---- review and render -----------------------------------------------------
 function currentSpec() {
   return {
@@ -369,7 +401,10 @@ $$('.tab').forEach(t => t.onclick = () => view(t.dataset.view));
     const me = await fetch('/api/me'); if (me.status === 401) return showSignIn();
     $('#who').textContent = (await me.json()).user; $('#nav').classList.remove('hidden');
     state.lines = [{ start: 0.3, text: '' }, { start: 0, text: '' }, { start: 0, text: '' }]; updateTotal(); spread();
-    renderSteps(); view('new'); await Promise.all([loadGames(), loadVoices()]);
+    renderSteps(); view('new');
+    const cfg = await api('/api/config'); state.aiOn = cfg.ai;
+    if (!cfg.ai) { $('#aiRun').disabled = true; $('#aiMsg').textContent = 'AI suggestions are switched off on this server (no ANTHROPIC_API_KEY). Fill the fields by hand.'; }
+    await Promise.all([loadGames(), loadVoices()]);
   } catch (e) { console.error(e); }
 })();
 </script>

@@ -38,6 +38,7 @@ Folder: `XY[001]_ConceptName_(DD.MM.YY)`.
 
 - Game folders are the folders in the Creatives shared drive; assets go to `Game/year/Assets` (logo and end card background are prefixed `logo__` and `endcard_bg__`), footage to `Assets/Footage`.
 - Renders go to `Game/year/Creatives/XY[id]_Concept_(DD.MM.YY)/`. The service holds no state between jobs except the registry cache and job history in `DATA_DIR`.
+- On the creative step, **AI suggestion** (`analysis.py`, Claude via `ANTHROPIC_API_KEY`) samples frames from the footage and proposes the cut (start and length), crop, hook, voiceover lines with timing and a music prompt; everything stays editable. Sizes: 9:16, 4:5 and 16:9 (resized from the 9:16 master with blurred borders).
 - Sign-in is Google OAuth restricted to `ALLOWED_DOMAIN` (default appodeal.com). One render runs at a time.
 
 Deploy on Coolify from this repo with the Dockerfile; set the variables from `.env.example` (including `ELEVENLABS_API_KEY`: outside the Claude sandbox there is no key-injecting proxy) (OAuth redirect URI: `BASE_URL/auth/callback`) and mount a persistent volume at `/data`. Run one replica only.
@@ -54,6 +55,6 @@ python3 -m unittest discover -s tests -t .
 
 ## Not built yet
 
-AI footage analysis and script/hook suggestions, 16:9 output, languages beyond EN, per-user job filtering.
+languages beyond EN, native 16:9 masters for landscape games, per-user job filtering.
 
 The ElevenLabs key is a host-scoped network secret for `api.elevenlabs.io` (header `xi-api-key`); code calls the API without a key and the proxy adds it.

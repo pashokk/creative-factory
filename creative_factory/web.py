@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import elevenlabs, naming
+from . import analysis, elevenlabs, naming, qa
 from .auth import AuthError, GoogleAuth
 from .drive import FOLDER, Drive
 from .jobs import JobStore, Worker
@@ -244,6 +244,50 @@ def get_job(job_id: str, user: str = Depends(current_user)):
     if not job:
         raise HTTPException(404, "no such job")
     return job
+
+
+# -- AI suggestions (cut, crop, hook, script) ---------------------------------------
+_analyses: dict[str, dict] = {}
+
+
+def _run_analysis(task_id: str, game: str, footage_id: str, brief: str, lang: str) -> None:
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            video = drive.download(footage_id, os.path.join(work, "footage.mp4"))
+            duration = qa.probe(video).duration_s
+            result = analysis.suggest(video, work, game, brief, duration, lang)
+        _analyses[task_id] = {"status": "done", "result": result, "duration": duration}
+    except Exception as e:
+        _analyses[task_id] = {"status": "failed", "error": str(e) or type(e).__name__}
+
+
+@app.get("/api/config")
+def config(user: str = Depends(current_user)):
+    return {"ai": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+
+
+@app.post("/api/analyze")
+def analyze(body: dict, user: str = Depends(current_user)):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(400, "AI suggestions are not configured (ANTHROPIC_API_KEY)")
+    game, footage_id = str(body.get("game", "")), str(body.get("footage_id", ""))
+    if not game or not footage_id:
+        raise HTTPException(400, "game and footage_id are required")
+    task_id = secrets.token_hex(6)
+    _analyses[task_id] = {"status": "running"}
+    for old in list(_analyses)[:-50]:  # keep the dict small
+        _analyses.pop(old, None)
+    threading.Thread(target=_run_analysis, daemon=True, args=(
+        task_id, game, footage_id, str(body.get("brief", ""))[:2000], str(body.get("lang", "EN"))[:2])).start()
+    return {"id": task_id}
+
+
+@app.get("/api/analyze/{task_id}")
+def analysis_status(task_id: str, user: str = Depends(current_user)):
+    task = _analyses.get(task_id)
+    if not task:
+        raise HTTPException(404, "no such analysis")
+    return task
 
 
 @app.get("/healthz")
