@@ -27,9 +27,8 @@ Read first:
 - Output example: shared drive root `0AFIgRksacladUk9PVA`, folder `My Little Spa/2026/Creatives/SP[033]_No_Break_(22.10.26)/`.
 
 ## Status
-Done: `naming.py`, `sizing.py`, `qa.py` with tests (`python3 -m unittest discover -s tests -t .`).
+Done: `naming.py`, `sizing.py`, `qa.py`, `registry.py` with tests (`python3 -m unittest discover -s tests -t .`); service account access verified; footage probed; spike renders (`scripts/spike_word_cipher.py`) pass QA, voiceover only.
 Next, in order:
-1. Verify the service account can read the footage folder and write to the Creatives drive (test upload, then delete it).
-2. Download the four videos, probe them (`qa.probe`), and describe them (length, resolution, fps, audio, what happens).
-3. Registry: JSON cache with file lock, weekly Drive scan, atomic prefix and id reservation.
-4. Spike: one 9:16 and one 4:5 ad for Word Cipher with a hook, ElevenLabs voiceover and music, and a packshot; run the QA gate.
+1. Music: Pavel is fixing the ElevenLabs key (`music_generation` permission). Then generate a track and re-render the spike with `--music`.
+2. Brand assets: let the user upload assets (logo, icon, key art, store screenshots) per game for the packshot and end card, instead of pulling the icon from the XAPK. Store them in the game's Drive folder, record which file is the logo, and have the packshot read them (fall back to the XAPK icon).
+3. Real Drive prefix scan to feed `Registry`, and Drive upload of finished ads into `Game/Year/Creatives/XY[id]_Concept_(DD.MM.YY)/`.
