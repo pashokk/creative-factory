@@ -1,8 +1,9 @@
 """AI suggestions: look at the footage and propose the cut, crop, hook, voiceover and music.
 
-Frames are sampled from the video and sent to Claude with a forced tool call, so the answer is
-structured. The result is only a suggestion: the UI fills the form and the user can edit it.
-Needs ANTHROPIC_API_KEY (standard library HTTP, no SDK).
+Frames are sampled from the video and sent to a vision model with a forced tool call, so the
+answer is structured. The result is only a suggestion: the UI fills the form and the user can
+edit it. Providers (standard library HTTP, no SDK): OpenAI when OPENAI_API_KEY is set, otherwise
+Anthropic when ANTHROPIC_API_KEY is set; ANALYSIS_PROVIDER=openai|anthropic forces one.
 """
 
 import base64
@@ -16,8 +17,10 @@ from typing import Callable, Optional
 
 from .pipeline import ENDCARD_S, MAX_TOTAL_S, MIN_TOTAL_S
 
-API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = os.environ.get("ANALYSIS_MODEL", "claude-sonnet-5-5")
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_MODELS = {"anthropic": "claude-sonnet-5-5", "openai": "gpt-4o"}
+KEY_VARS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 MAX_FRAMES = 40
 WORDS_PER_SECOND = 2.5
 MIN_GAMEPLAY_S = MIN_TOTAL_S - ENDCARD_S
@@ -63,18 +66,28 @@ def sample_frames(video: str, out_dir: str, duration_s: float) -> list[tuple[flo
     return [(round(i * every, 1), p) for i, p in enumerate(paths)]
 
 
-def build_request(frames: list[tuple[float, str]], game: str, brief: str, duration_s: float,
-                  lang: str = "EN") -> dict:
-    content: list = [{"type": "text", "text": (
+def provider() -> Optional[str]:
+    """Which provider is configured, or None."""
+    forced = os.environ.get("ANALYSIS_PROVIDER", "").lower()
+    if forced in KEY_VARS:
+        return forced if os.environ.get(KEY_VARS[forced]) else None
+    return next((p for p in ("openai", "anthropic") if os.environ.get(KEY_VARS[p])), None)
+
+
+def _model(prov: str) -> str:
+    return os.environ.get("ANALYSIS_MODEL") or DEFAULT_MODELS[prov]
+
+
+def _parts(frames: list[tuple[float, str]], game: str, brief: str, duration_s: float, lang: str) -> list[tuple[str, str]]:
+    """The prompt as ("text", str) and ("image", base64 jpeg) parts, shared by all providers."""
+    parts: list[tuple[str, str]] = [("text", (
         f"Game: {game}\nFootage length: {duration_s:.1f} s\nLanguage of voiceover and hook: {lang}\n"
         f"Brief from the user: {brief.strip() or '(none)'}\n\n"
-        "Below are frames from a screen recording of gameplay, each labelled with its second in the source footage.")}]
+        "Below are frames from a screen recording of gameplay, each labelled with its second in the source footage."))]
     for t, path in frames:
         with open(path, "rb") as f:
-            data = base64.standard_b64encode(f.read()).decode()
-        content += [{"type": "text", "text": f"Source second {t}:"},
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}}]
-    content.append({"type": "text", "text": (
+            parts += [("text", f"Source second {t}:"), ("image", base64.standard_b64encode(f.read()).decode())]
+    parts.append(("text", (
         "Propose a mobile video ad built from this footage by calling propose_edit.\n"
         f"- Gameplay length {MIN_GAMEPLAY_S:g}-{MAX_GAMEPLAY_S:g} s (a {ENDCARD_S:g} s end card with the logo is added), "
         "inside the footage. Start where something engaging is already happening; skip menus, loading and idle time; "
@@ -87,24 +100,58 @@ def build_request(frames: list[tuple[float, str]], game: str, brief: str, durati
         "line starts at 0.3. The last line is the call to action with the game name: it starts at trim_len + 0.5 "
         "(on the end card) and has at most 8 words.\n"
         "- Say only what the frames show. No invented features, ratings, prices or claims such as 'free'.\n"
-        "- Music: one sentence describing an instrumental bed that fits the game, no vocals.")})
-    return {"model": MODEL, "max_tokens": 1500, "tools": [TOOL],
+        "- Music: one sentence describing an instrumental bed that fits the game, no vocals.")))
+    return parts
+
+
+def build_request(frames: list[tuple[float, str]], game: str, brief: str, duration_s: float,
+                  lang: str = "EN", prov: str = "anthropic") -> dict:
+    parts = _parts(frames, game, brief, duration_s, lang)
+    if prov == "openai":
+        content = [{"type": "text", "text": v} if k == "text" else
+                   {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + v}} for k, v in parts]
+        return {"model": _model(prov), "max_completion_tokens": 1500,
+                "tools": [{"type": "function", "function": {
+                    "name": TOOL["name"], "description": TOOL["description"], "parameters": TOOL["input_schema"]}}],
+                "tool_choice": {"type": "function", "function": {"name": TOOL["name"]}},
+                "messages": [{"role": "user", "content": content}]}
+    content = [{"type": "text", "text": v} if k == "text" else
+               {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": v}} for k, v in parts]
+    return {"model": _model(prov), "max_tokens": 1500, "tools": [TOOL],
             "tool_choice": {"type": "tool", "name": TOOL["name"]},
             "messages": [{"role": "user", "content": content}]}
 
 
-def _post(payload: dict, key: str) -> dict:
-    req = urllib.request.Request(API_URL, json.dumps(payload).encode(), {
-        "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"})
+def _post(payload: dict, key: str, prov: str = "anthropic") -> dict:
+    url = OPENAI_URL if prov == "openai" else ANTHROPIC_URL
+    headers = {"content-type": "application/json"}
+    headers.update({"authorization": "Bearer " + key} if prov == "openai"
+                   else {"x-api-key": key, "anthropic-version": "2023-06-01"})
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, json.dumps(payload).encode(), headers), timeout=180) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         try:
-            detail = json.loads(e.read())["error"]["message"]
+            error = json.loads(e.read())["error"]
+            detail = error.get("message") if isinstance(error, dict) else str(error)
         except Exception:
             detail = e.reason
-        raise AnalysisError(f"Claude API {e.code}: {detail}") from None
+        raise AnalysisError(f"{'OpenAI' if prov == 'openai' else 'Claude'} API {e.code}: {detail}") from None
+
+
+def _proposal(response: dict, prov: str) -> Optional[dict]:
+    if prov == "openai":
+        for call in (response.get("choices") or [{}])[0].get("message", {}).get("tool_calls") or []:
+            if call.get("function", {}).get("name") == TOOL["name"]:
+                try:
+                    return json.loads(call["function"]["arguments"])
+                except ValueError:
+                    return None
+        return None
+    for block in response.get("content", []):
+        if block.get("type") == "tool_use" and block.get("name") == TOOL["name"]:
+            return block["input"]
+    return None
 
 
 def normalize(raw: dict, duration_s: float) -> dict:
@@ -125,13 +172,16 @@ def normalize(raw: dict, duration_s: float) -> dict:
 
 
 def suggest(video: str, work: str, game: str, brief: str, duration_s: float, lang: str = "EN",
-            post: Optional[Callable[[dict, str], dict]] = None) -> dict:
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key and post is None:
-        raise AnalysisError("AI suggestions are not configured (ANTHROPIC_API_KEY is not set)")
+            post: Optional[Callable[[dict, str], dict]] = None, prov: Optional[str] = None) -> dict:
+    prov = prov or provider()
+    if prov is None and post is None:
+        raise AnalysisError("AI suggestions are not configured (set OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+    prov = prov or "anthropic"
+    key = os.environ.get(KEY_VARS[prov], "").strip()
     frames = sample_frames(video, os.path.join(work, "frames"), duration_s)
-    response = (post or _post)(build_request(frames, game, brief, duration_s, lang), key or "")
-    for block in response.get("content", []):
-        if block.get("type") == "tool_use" and block.get("name") == TOOL["name"]:
-            return normalize(block["input"], duration_s)
-    raise AnalysisError("the model did not return a proposal; try again")
+    payload = build_request(frames, game, brief, duration_s, lang, prov)
+    response = post(payload, key) if post else _post(payload, key, prov)
+    raw = _proposal(response, prov)
+    if raw is None:
+        raise AnalysisError("the model did not return a proposal; try again")
+    return normalize(raw, duration_s)

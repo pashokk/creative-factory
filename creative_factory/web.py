@@ -263,13 +263,13 @@ def _run_analysis(task_id: str, game: str, footage_id: str, brief: str, lang: st
 
 @app.get("/api/config")
 def config(user: str = Depends(current_user)):
-    return {"ai": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+    return {"ai": analysis.provider() is not None}
 
 
 @app.post("/api/analyze")
 def analyze(body: dict, user: str = Depends(current_user)):
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise HTTPException(400, "AI suggestions are not configured (ANTHROPIC_API_KEY)")
+    if analysis.provider() is None:
+        raise HTTPException(400, "AI suggestions are not configured (OPENAI_API_KEY or ANTHROPIC_API_KEY)")
     game, footage_id = str(body.get("game", "")), str(body.get("footage_id", ""))
     if not game or not footage_id:
         raise HTTPException(400, "game and footage_id are required")
