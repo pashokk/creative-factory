@@ -10,7 +10,6 @@ from . import naming, sizing
 MIN_DURATION_S = 30
 MAX_DURATION_S = 59  # 60 s or more is never allowed
 ALLOWED_RATIOS = {"9x16", "16x9", "4x5"}
-SUBSTITUTE_RATIOS = {"1x1"}  # accepted in place of 4x5, but 4x5 is preferred
 
 
 @dataclass
@@ -65,10 +64,9 @@ def check_size(size_bytes: int, limit_mb: float = sizing.DEFAULT_LIMIT_MB) -> Op
     return None
 
 
-def check_ratio(label: str, allow_substitute: bool = False) -> Optional[str]:
-    allowed = ALLOWED_RATIOS | (SUBSTITUTE_RATIOS if allow_substitute else set())
-    if label not in allowed:
-        return f"aspect ratio {label} is not one of {sorted(allowed)}"
+def check_ratio(label: str) -> Optional[str]:
+    if label not in ALLOWED_RATIOS:
+        return f"aspect ratio {label} is not one of {sorted(ALLOWED_RATIOS)}"
     return None
 
 
@@ -76,7 +74,6 @@ def run_checks(
     filename: str,
     info: MediaInfo,
     limit_mb: float = sizing.DEFAULT_LIMIT_MB,
-    allow_substitute_ratio: bool = False,
 ) -> QAResult:
     result = QAResult()
     parsed = naming.parse_filename(filename)
@@ -85,7 +82,7 @@ def run_checks(
     for problem in (
         check_duration(info.duration_s),
         check_size(info.size_bytes, limit_mb),
-        check_ratio(naming.ratio_label(info.width, info.height), allow_substitute_ratio),
+        check_ratio(naming.ratio_label(info.width, info.height)),
     ):
         if problem:
             result.problems.append(problem)

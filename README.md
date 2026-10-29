@@ -9,7 +9,7 @@ Naming convention (source of truth): https://appodeal.atlassian.net/wiki/spaces/
 
 | Rule | Value |
 |---|---|
-| Ratios | 9:16, 16:9, 4:5 (1:1 only as a substitute for 4:5) |
+| Ratios | 9:16, 16:9, 4:5 |
 | Container | MP4 |
 | Duration | 30-59 s, never 60 s or more |
 | Size | up to 30 MB; working budget may be raised to 40 MB |

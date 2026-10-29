@@ -41,10 +41,10 @@ class Checks(unittest.TestCase):
         self.assertIsNotNone(qa.check_size(31_000_000, 30))
         self.assertIsNone(qa.check_size(31_000_000, 40))
 
-    def test_ratio_and_substitute(self):
-        self.assertIsNone(qa.check_ratio("4x5"))
+    def test_ratios(self):
+        for ok in ("9x16", "16x9", "4x5"):
+            self.assertIsNone(qa.check_ratio(ok))
         self.assertIsNotNone(qa.check_ratio("1x1"))
-        self.assertIsNone(qa.check_ratio("1x1", allow_substitute=True))
 
     def test_name_must_match_video(self):
         r = qa.run_checks("BW001_v1_16x9_40s_EN.mp4", info())
