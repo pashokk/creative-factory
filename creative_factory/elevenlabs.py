@@ -4,6 +4,7 @@ In the Claude sandbox a network proxy injects the real xi-api-key, so the code s
 placeholder. Anywhere else (Coolify) set ELEVENLABS_API_KEY and it is sent instead.
 """
 
+import base64
 import json
 import os
 import urllib.error
@@ -45,6 +46,19 @@ def speech(text: str, voice_id: str, path: str) -> None:
                   {"text": text, "model_id": "eleven_multilingual_v2"})
     with open(path, "wb") as f:
         f.write(audio)
+
+
+def speech_with_timestamps(text: str, voice_id: str, path: str) -> list[tuple[str, float, float]]:
+    """Like speech(), also returns word timings [(word, start s, end s)] from the character alignment."""
+    from .subtitles import words_from_alignment
+
+    data = json.loads(_call(f"/v1/text-to-speech/{voice_id}/with-timestamps?output_format=mp3_44100_128",
+                            {"text": text, "model_id": "eleven_multilingual_v2"}))
+    with open(path, "wb") as f:
+        f.write(base64.b64decode(data["audio_base64"]))
+    al = data.get("alignment") or data.get("normalized_alignment") or {}
+    return words_from_alignment(al.get("characters", []), al.get("character_start_times_seconds", []),
+                                al.get("character_end_times_seconds", []))
 
 
 def music(prompt: str, length_s: float, path: str) -> None:

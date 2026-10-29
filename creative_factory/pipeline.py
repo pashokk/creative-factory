@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from . import elevenlabs, naming, qa, sizing
+from . import elevenlabs, naming, qa, sizing, subtitles
 from .drive import Drive
 from .registry import Registry
 
@@ -46,6 +46,7 @@ class JobSpec:
     voice_id: str = ""
     music_prompt: str = ""
     ratios: list = field(default_factory=lambda: ["9x16", "4x5"])
+    subtitles: str = "pop"  # off | pop | clean
     limit_mb: float = sizing.DEFAULT_LIMIT_MB
 
 
@@ -66,6 +67,8 @@ def validate(spec: JobSpec) -> list[str]:
         problems.append("add at least one voiceover line and no empty lines")
     if not spec.ratios or any(r not in RATIOS for r in spec.ratios):
         problems.append(f"ratios must be among {sorted(RATIOS)}")
+    if spec.subtitles not in subtitles.STYLES:
+        problems.append(f"subtitles must be one of {', '.join(subtitles.STYLES)}")
     if not re.fullmatch(r"[A-Z]{2}", spec.lang):
         problems.append("language must be two capital letters, e.g. EN")
     return problems
@@ -149,15 +152,23 @@ def _duration(path: str) -> float:
     return float(p.stdout)
 
 
-def build_audio(spec: JobSpec, work: str, total_s: float, out: str, say: Progress) -> list[str]:
+def build_audio(spec: JobSpec, work: str, total_s: float, out: str, say: Progress) -> tuple[list[str], list]:
+    """Mixes the voiceover (and music); returns (warnings, word timings in final-video seconds)."""
     warnings: list[str] = []
-    paths = []
+    paths, line_words = [], []
     for i, line in enumerate(spec.lines):
         say(f"Voiceover line {i + 1} of {len(spec.lines)}")
         mp3 = os.path.join(work, f"vo{i}.mp3")
-        elevenlabs.speech(line["text"].strip(), spec.voice_id, mp3)
+        text = line["text"].strip()
+        try:
+            words = elevenlabs.speech_with_timestamps(text, spec.voice_id, mp3)
+        except (elevenlabs.ElevenLabsError, KeyError, ValueError):
+            elevenlabs.speech(text, spec.voice_id, mp3)  # no alignment: captions are estimated
+            words = []
         paths.append(mp3)
+        line_words.append(words or subtitles.estimate_words(text, _duration(mp3)))
     starts = place_lines(spec.lines, [_duration(p) for p in paths])
+    words_abs = [(w, start + ws, start + we) for start, ws_list in zip(starts, line_words) for w, ws, we in ws_list]
     if starts and starts[-1] + _duration(paths[-1]) > total_s:
         warnings.append("The last voiceover line runs past the end of the video and is cut off.")
     music_path = None
@@ -188,10 +199,11 @@ def build_audio(spec: JobSpec, work: str, total_s: float, out: str, say: Progres
         filters.append("[vo]anull[a]")
     _run("ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[a]",
          "-t", str(total_s), "-c:a", "aac", "-b:a", "128k", out)
-    return warnings
+    return warnings, words_abs
 
 
-def render_master(spec: JobSpec, footage: str, frames_dir: str, audio: str, out: str, total_s: float) -> None:
+def render_master(spec: JobSpec, footage: str, frames_dir: str, audio: str, out: str, total_s: float,
+                  ass_path: Optional[str] = None) -> None:
     hook_file = os.path.join(os.path.dirname(out), "hook.txt")
     with open(hook_file, "w") as f:
         f.write(spec.hook.strip().replace("\\n", "\n"))
@@ -202,11 +214,16 @@ def render_master(spec: JobSpec, footage: str, frames_dir: str, audio: str, out:
     top, bottom = spec.crop_top_pct / 100, spec.crop_bottom_pct / 100
     crop = f"crop=iw:ih*{1 - top - bottom:.4f}:0:ih*{top:.4f}"
     gameplay = (f"[0:v]{crop},fps={FPS}[c];[c]{_fit(1080, 1920).replace('[0:v]', '', 1)}{hook}[g]")
-    fc = (f"{gameplay};[1:v]fps={FPS},setsar=1,fade=t=in:d=0.4[p];[g][p]concat=n=2:v=1:a=0[v]")
+    fc = (f"{gameplay};[1:v]fps={FPS},setsar=1,fade=t=in:d=0.4[p];[g][p]concat=n=2:v=1:a=0[vc]")
+    if ass_path:  # captions over the whole master, end card included
+        escaped = ass_path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        fc += f";[vc]ass='{escaped}'[vout]"
+    else:
+        fc += ";[vc]null[vout]"
     kbps = sizing.video_bitrate(total_s, spec.limit_mb) // 1000
     _run("ffmpeg", "-y", "-ss", str(spec.trim_start), "-t", str(spec.trim_len), "-i", footage,
          "-framerate", str(FPS), "-i", os.path.join(frames_dir, "%03d.png"), "-i", audio,
-         "-filter_complex", fc, "-map", "[v]", "-map", "2:a", "-c:v", "libx264", "-preset", "medium",
+         "-filter_complex", fc, "-map", "[vout]", "-map", "2:a", "-c:v", "libx264", "-preset", "medium",
          "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k", "-pix_fmt", "yuv420p",
          "-c:a", "copy", "-movflags", "+faststart", "-t", str(total_s), out)
 
@@ -245,11 +262,16 @@ def run_job(spec: JobSpec, drive: Drive, registry: Registry, work: str, say: Pro
     frames = os.path.join(work, "endcard")
     endcard_frames(logo, re.sub(r"\s*\(.*\)$", "", spec.game), frames, bg)
     audio = os.path.join(work, "audio.m4a")
-    warnings = build_audio(spec, work, total, audio, say)
+    warnings, words = build_audio(spec, work, total, audio, say)
+    ass_path = None
+    if spec.subtitles != "off" and words:
+        ass_path = os.path.join(work, "subs.ass")
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(subtitles.ass_document(words, spec.subtitles))
 
     say("Rendering the 9:16 master")
     master = os.path.join(work, "master.mp4")
-    render_master(spec, footage, frames, audio, master, total)
+    render_master(spec, footage, frames, audio, master, total, ass_path)
 
     say("Creating the Drive folder")
     folder_name = naming.folder_name(prefix, creative_id, spec.concept, today)

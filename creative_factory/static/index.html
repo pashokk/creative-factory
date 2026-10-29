@@ -148,6 +148,8 @@
       </div>
       <label for="music">Music prompt (ElevenLabs, leave empty for none)</label>
       <textarea id="music">Light upbeat puzzle-game background music, soft piano and plucked strings, warm and curious, no vocals</textarea>
+      <label for="subs">Subtitles</label>
+      <select id="subs"><option value="pop" selected>Pop — uppercase words, the spoken word highlighted (TikTok style)</option><option value="clean">Clean — sentence captions on a dark box (Instagram style)</option><option value="off">Off</option></select>
       <label>Sizes</label>
       <div class="row" style="gap:20px"><label style="font-weight:400"><input type="checkbox" class="ratio" value="9x16" checked> 9:16</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="4x5" checked> 4:5</label><label style="font-weight:400"><input type="checkbox" class="ratio" value="16x9" checked> 16:9</label></div>
       <div class="actions"><button class="btn ghost" data-prev>Back</button><button class="btn" data-next>Next: review</button></div>
@@ -339,14 +341,14 @@ function currentSpec() {
     trim_start: +$('#trimStart').value, trim_len: +$('#trimLen').value,
     crop_top_pct: +$('#cropTop').value, crop_bottom_pct: +$('#cropBottom').value,
     hook: $('#hook').value, lines: state.lines.filter(l => l.text.trim()), voice_id: $('#voice').value,
-    music_prompt: $('#music').value.trim(), ratios: $$('.ratio').filter(c => c.checked).map(c => c.value),
+    music_prompt: $('#music').value.trim(), subtitles: $('#subs').value, ratios: $$('.ratio').filter(c => c.checked).map(c => c.value),
   };
 }
 function renderReview() {
   const s = currentSpec(), name = id => [...state.assets, ...state.footage].find(a => a.id === id)?.name.replace(/^(logo|endcard_bg)__/, '') || '—';
   const rows = [['Game', s.game], ['Next id', state.prefix?.next_id], ['Concept', s.concept], ['Footage', `${name(s.footage_id)} (${s.trim_start}s + ${s.trim_len}s)`],
     ['Logo', name(s.logo_id)], ['End card background', s.endcard_bg_id ? name(s.endcard_bg_id) : 'plain gradient'], ['Voice lines', s.lines.length],
-    ['Music', s.music_prompt ? 'ElevenLabs music' : 'none'], ['Sizes', s.ratios.join(', ')], ['Total length', `${(s.trim_len + 5).toFixed(1)} s`]];
+    ['Music', s.music_prompt ? 'ElevenLabs music' : 'none'], ['Subtitles', s.subtitles], ['Sizes', s.ratios.join(', ')], ['Total length', `${(s.trim_len + 5).toFixed(1)} s`]];
   $('#review').replaceChildren(el('table', {}, ...rows.map(([k, v]) => el('tr', {}, el('th', { textContent: k }), el('td', { textContent: String(v) })))));
   $('#problems').replaceChildren();
 }
