@@ -269,7 +269,7 @@ def config(user: str = Depends(current_user)):
 @app.post("/api/analyze")
 def analyze(body: dict, user: str = Depends(current_user)):
     if analysis.provider() is None:
-        raise HTTPException(400, "AI suggestions are not configured (OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+        raise HTTPException(400, "AI suggestions are not configured (PLANNER_RUNTIME_ARN, OPENAI_API_KEY or ANTHROPIC_API_KEY)")
     game, footage_id = str(body.get("game", "")), str(body.get("footage_id", ""))
     if not game or not footage_id:
         raise HTTPException(400, "game and footage_id are required")

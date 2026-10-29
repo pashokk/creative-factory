@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from creative_factory import analysis
 
@@ -94,9 +95,112 @@ if __name__ == "__main__":
     unittest.main()
 
 
+PLAN_TEXT = "KIND: edit-plan\nSTATE: Ready\n\nCut 5-45 s. Starts on the first word.\n\n```json\n%s\n```"
+AGENT_PLAN = {"trimStart": 5, "trimLen": 40, "cropTopPct": 4, "cropBottomPct": 6, "hook": "Can you crack\nthe phrase?",
+              "lines": [{"at": 0.3, "text": "First."}, {"at": 44.5, "text": "Word Cipher. Download it now."}],
+              "musicPrompt": "soft piano", "rationale": "Starts on the first word."}
+
+
+def sse(*events):
+    return "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+
+
+class PlannerReply(unittest.TestCase):
+    def test_stream_with_heartbeats_and_finish(self):
+        raw = sse({"type": "start"}, {"type": "log", "output": "still working"},
+                  {"type": "finish", "output": PLAN_TEXT % json.dumps(AGENT_PLAN)})
+        reply = analysis.parse_planner_reply(raw)
+        self.assertEqual(reply["state"], "Ready")
+        self.assertEqual(reply["plan"]["trimLen"], 40)
+        self.assertIn("Cut 5-45 s", reply["text"])
+
+    def test_plain_json_answer(self):
+        raw = json.dumps({"output": PLAN_TEXT % json.dumps(AGENT_PLAN), "sessionId": "s"})
+        self.assertEqual(analysis.parse_planner_reply(raw)["state"], "Ready")
+
+    def test_needs_info_carries_the_reason(self):
+        raw = sse({"type": "finish", "output": "KIND: edit-plan\nSTATE: Needs-Info\n\nNot done: footage is 20 s."})
+        reply = analysis.parse_planner_reply(raw)
+        self.assertEqual(reply["state"], "Needs-Info")
+        self.assertIn("footage is 20 s", reply["text"])
+        self.assertIsNone(reply["plan"])
+
+    def test_stream_error_and_garbage(self):
+        with self.assertRaisesRegex(analysis.AnalysisError, "deadline"):
+            analysis.parse_planner_reply(sse({"type": "start"}, {"type": "error", "error_type": "deadline"}))
+        with self.assertRaises(analysis.AnalysisError):
+            analysis.parse_planner_reply("<html>bad gateway</html>")
+        with self.assertRaises(analysis.AnalysisError):
+            analysis.parse_planner_reply(sse({"type": "start"}))
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
+class Agentcore(unittest.TestCase):
+    def video(self, d):
+        video = os.path.join(d, "v.mp4")
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=270x540:rate=10", "-t", "30",
+                        "-pix_fmt", "yuv420p", video], check=True)
+        return video
+
+    def test_request_and_result(self):
+        seen = {}
+
+        def fake(payload, key):
+            seen["payload"] = payload
+            return {"raw": sse({"type": "finish", "output": PLAN_TEXT % json.dumps(AGENT_PLAN)})}
+
+        with tempfile.TemporaryDirectory() as d:
+            out = analysis.suggest(self.video(d), d, "Word Cipher", "relaxing", 30.0, post=fake, prov="agentcore")
+        payload = seen["payload"]
+        self.assertEqual((payload["mode"], payload["game"], payload["brief"], payload["durationS"]),
+                         ("plan", "Word Cipher", "relaxing", 30.0))
+        self.assertTrue(10 <= len(payload["frames"]) <= 20)
+        self.assertEqual(payload["frames"][0]["mediaType"], "image/jpeg")
+        self.assertEqual(out["hook"], "Can you crack\nthe phrase?")
+        self.assertEqual(out["trim_len"], 30.0)  # the agent said 40 s; the footage is 30 s
+        self.assertEqual(out["lines"][0], {"start": 0.3, "text": "First."})
+
+    def test_needs_info_becomes_an_error_with_the_reason(self):
+        fake = lambda payload, key: {"raw": sse({"type": "finish", "output": "KIND: edit-plan\nSTATE: Needs-Info\n\nNot done: not gameplay."})}
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(analysis.AnalysisError, "not gameplay"):
+                analysis.suggest(self.video(d), d, "G", "", 30.0, post=fake, prov="agentcore")
+
+    def test_invocation_is_valid_for_the_agentcore_api(self):
+        import io
+
+        import boto3
+        from botocore.response import StreamingBody
+        from botocore.stub import Stubber
+
+        body = sse({"type": "finish", "output": PLAN_TEXT % json.dumps(AGENT_PLAN)}).encode()
+        client = boto3.client("bedrock-agentcore", region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="y")
+        stub = Stubber(client)
+        arn = "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/creative_factory_planner-abc"
+        stub.add_response("invoke_agent_runtime", {"response": StreamingBody(io.BytesIO(body), len(body)), "contentType": "text/event-stream"},
+                          {"agentRuntimeArn": arn, "runtimeSessionId": mock.ANY, "payload": mock.ANY})
+        stub.activate()
+        with mock.patch.dict(os.environ, {"PLANNER_RUNTIME_ARN": arn}), mock.patch("boto3.client", return_value=client):
+            raw = analysis._agentcore({"mode": "plan"})  # botocore validates names, types and the session id length
+        self.assertEqual(analysis.parse_planner_reply(raw)["state"], "Ready")
+
+    def test_aws_errors_become_analysis_errors(self):
+        import boto3
+        from botocore.stub import Stubber
+
+        client = boto3.client("bedrock-agentcore", region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="y")
+        stub = Stubber(client)
+        stub.add_client_error("invoke_agent_runtime", service_error_code="AccessDeniedException", service_message="not allowed")
+        stub.activate()
+        with mock.patch.dict(os.environ, {"PLANNER_RUNTIME_ARN": "arn:aws:bedrock-agentcore:us-east-1:1:runtime/x"}), \
+                mock.patch("boto3.client", return_value=client):
+            with self.assertRaisesRegex(analysis.AnalysisError, "AccessDeniedException: not allowed"):
+                analysis._agentcore({"mode": "plan"})
+
+
 class ProviderChoice(unittest.TestCase):
     def setUp(self):
-        self.saved = {k: os.environ.pop(k, None) for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANALYSIS_PROVIDER")}
+        self.saved = {k: os.environ.pop(k, None) for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANALYSIS_PROVIDER", "PLANNER_RUNTIME_ARN")}
 
     def tearDown(self):
         for k, v in self.saved.items():
@@ -106,6 +210,12 @@ class ProviderChoice(unittest.TestCase):
 
     def test_none_configured(self):
         self.assertIsNone(analysis.provider())
+
+    def test_the_planner_agent_wins_over_direct_keys(self):
+        os.environ.update(OPENAI_API_KEY="a", ANTHROPIC_API_KEY="b", PLANNER_RUNTIME_ARN="arn:x")
+        self.assertEqual(analysis.provider(), "agentcore")
+        os.environ["ANALYSIS_PROVIDER"] = "openai"
+        self.assertEqual(analysis.provider(), "openai")
 
     def test_openai_wins_when_both_set(self):
         os.environ.update(OPENAI_API_KEY="a", ANTHROPIC_API_KEY="b")

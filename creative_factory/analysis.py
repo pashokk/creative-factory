@@ -2,8 +2,13 @@
 
 Frames are sampled from the video and sent to a vision model with a forced tool call, so the
 answer is structured. The result is only a suggestion: the UI fills the form and the user can
-edit it. Providers (standard library HTTP, no SDK): OpenAI when OPENAI_API_KEY is set, otherwise
-Anthropic when ANTHROPIC_API_KEY is set; ANALYSIS_PROVIDER=openai|anthropic forces one.
+edit it. Providers, first configured wins:
+
+- agentcore: the team's creative-factory-planner agent (bidmachine/pulse-ai-helper), Claude through
+  AWS Bedrock, no Anthropic key. Needs PLANNER_RUNTIME_ARN and AWS credentials that may invoke it.
+- openai (OPENAI_API_KEY) and anthropic (ANTHROPIC_API_KEY): direct calls, standard library HTTP.
+
+ANALYSIS_PROVIDER=agentcore|openai|anthropic forces one.
 """
 
 import base64
@@ -21,7 +26,8 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODELS = {"anthropic": "claude-sonnet-5-5", "openai": "gpt-4o"}
 KEY_VARS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
-MAX_FRAMES = 40
+ORDER = ("agentcore", "openai", "anthropic")
+MAX_FRAMES = 20  # the planner agent (Bedrock) takes at most 20 images per call
 WORDS_PER_SECOND = 2.5
 MIN_GAMEPLAY_S = MIN_TOTAL_S - ENDCARD_S
 MAX_GAMEPLAY_S = MAX_TOTAL_S - ENDCARD_S
@@ -66,12 +72,18 @@ def sample_frames(video: str, out_dir: str, duration_s: float) -> list[tuple[flo
     return [(round(i * every, 1), p) for i, p in enumerate(paths)]
 
 
+def _configured(prov: str) -> bool:
+    if prov == "agentcore":
+        return bool(os.environ.get("PLANNER_RUNTIME_ARN", "").strip())
+    return bool(os.environ.get(KEY_VARS[prov], "").strip())
+
+
 def provider() -> Optional[str]:
     """Which provider is configured, or None."""
     forced = os.environ.get("ANALYSIS_PROVIDER", "").lower()
-    if forced in KEY_VARS:
-        return forced if os.environ.get(KEY_VARS[forced]) else None
-    return next((p for p in ("openai", "anthropic") if os.environ.get(KEY_VARS[p])), None)
+    if forced in ORDER:
+        return forced if _configured(forced) else None
+    return next((p for p in ORDER if _configured(p)), None)
 
 
 def _model(prov: str) -> str:
@@ -120,6 +132,83 @@ def build_request(frames: list[tuple[float, str]], game: str, brief: str, durati
     return {"model": _model(prov), "max_tokens": 1500, "tools": [TOOL],
             "tool_choice": {"type": "tool", "name": TOOL["name"]},
             "messages": [{"role": "user", "content": content}]}
+
+
+def planner_payload(frames: list[tuple[float, str]], game: str, brief: str, duration_s: float, lang: str) -> dict:
+    """The creative-factory-planner `plan` request (contract: pulse-ai-helper/bots/creative-factory-planner)."""
+    out = []
+    for t, path in frames:
+        with open(path, "rb") as f:
+            out.append({"t": t, "mediaType": "image/jpeg", "base64": base64.standard_b64encode(f.read()).decode()})
+    return {"mode": "plan", "game": game, "brief": brief.strip(), "lang": lang, "durationS": round(duration_s, 1),
+            "frames": out}
+
+
+def parse_planner_reply(raw: str) -> dict:
+    """The agent's final answer as {"state", "text", "plan"}; raises AnalysisError on a stream error.
+
+    The runtime answers either one JSON object or a server-sent-event stream (start, log, finish)."""
+    events = []
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            try:
+                events.append(json.loads(line[5:].strip()))
+            except ValueError:
+                continue
+    if not events:
+        try:
+            whole = json.loads(raw)
+        except ValueError:
+            raise AnalysisError("the planner returned something unreadable; try again") from None
+        events = [whole if "type" in whole else {"type": "finish", **whole}] if isinstance(whole, dict) else []
+    for event in events:
+        if isinstance(event, dict) and event.get("type") == "error":
+            raise AnalysisError(f"planner error: {event.get('error') or event.get('error_type') or 'unknown'}")
+    finish = next((e for e in reversed(events) if isinstance(e, dict) and e.get("type") == "finish"), None)
+    output = (finish or {}).get("output")
+    if not isinstance(output, str):
+        raise AnalysisError("the planner returned no answer; try again")
+    lines = output.splitlines()
+    state = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("STATE:")), "")
+    plan = None
+    if "```json" in output:
+        try:
+            plan = json.loads(output.split("```json", 1)[1].split("```", 1)[0])
+        except ValueError:
+            plan = None
+    prose = "\n".join(l for l in lines if not l.startswith(("KIND:", "STATE:"))).split("```", 1)[0].strip()
+    return {"state": state, "text": prose, "plan": plan}
+
+
+def _agentcore(payload: dict) -> str:
+    import uuid
+
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION") or "us-east-1",
+                          config=Config(connect_timeout=10, read_timeout=360,
+                                        retries={"total_max_attempts": 2, "mode": "standard"}))
+    try:
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=os.environ["PLANNER_RUNTIME_ARN"].strip(),
+            runtimeSessionId=f"creative-factory-{uuid.uuid4().hex}",  # AgentCore wants at least 33 characters
+            payload=json.dumps(payload, separators=(",", ":")).encode())
+        raw = response["response"].read()
+    except ClientError as e:
+        err = e.response.get("Error", {})
+        raise AnalysisError(f"AgentCore {err.get('Code', 'error')}: {err.get('Message', e)}") from None
+    except BotoCoreError as e:
+        raise AnalysisError(f"AgentCore: {e}") from None
+    return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+
+
+def _planner_raw(plan: dict) -> dict:
+    """EditPlan (camelCase, from the agent) in the shape normalize() takes."""
+    return {"trim_start": plan["trimStart"], "trim_len": plan["trimLen"], "crop_top_pct": plan["cropTopPct"],
+            "crop_bottom_pct": plan["cropBottomPct"], "hook": plan["hook"], "lines": plan["lines"],
+            "music_prompt": plan.get("musicPrompt", ""), "rationale": plan.get("rationale", "")}
 
 
 def _post(payload: dict, key: str, prov: str = "anthropic") -> dict:
@@ -175,10 +264,19 @@ def suggest(video: str, work: str, game: str, brief: str, duration_s: float, lan
             post: Optional[Callable[[dict, str], dict]] = None, prov: Optional[str] = None) -> dict:
     prov = prov or provider()
     if prov is None and post is None:
-        raise AnalysisError("AI suggestions are not configured (set OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+        raise AnalysisError("AI suggestions are not configured (PLANNER_RUNTIME_ARN, OPENAI_API_KEY or ANTHROPIC_API_KEY)")
     prov = prov or "anthropic"
-    key = os.environ.get(KEY_VARS[prov], "").strip()
     frames = sample_frames(video, os.path.join(work, "frames"), duration_s)
+    if prov == "agentcore":
+        payload = planner_payload(frames, game, brief, duration_s, lang)
+        reply = parse_planner_reply(post(payload, "")["raw"] if post else _agentcore(payload))
+        if reply["state"] != "Ready" or not isinstance(reply["plan"], dict):
+            raise AnalysisError(reply["text"] or "the planner could not make a proposal; try again")
+        try:
+            return normalize(_planner_raw(reply["plan"]), duration_s)
+        except KeyError as e:
+            raise AnalysisError(f"the planner's proposal is missing {e}; try again") from None
+    key = os.environ.get(KEY_VARS.get(prov, ""), "").strip()
     payload = build_request(frames, game, brief, duration_s, lang, prov)
     response = post(payload, key) if post else _post(payload, key, prov)
     raw = _proposal(response, prov)

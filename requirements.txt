@@ -4,3 +4,4 @@ python-multipart==0.0.32
 itsdangerous==2.2.0
 pillow==12.3.0
 cryptography==50.0.1
+boto3==1.43.121
