@@ -22,6 +22,17 @@ class DerivePrefix(unittest.TestCase):
         self.assertIsNone(naming.suggest_prefix("X"))
 
 
+class PrefixAndId(unittest.TestCase):
+    def test_file_and_folder_names(self):
+        self.assertEqual(naming.prefix_and_id("BW1001_v1_9x16_45s_EN.mp4"), ("BW1", 1))
+        self.assertEqual(naming.prefix_and_id("WC[002]_word_(29.10.26)"), ("WC", 2))
+        self.assertEqual(naming.prefix_and_id("BW1[012]_Concept_(01.01.27)"), ("BW1", 12))
+
+    def test_other_names(self):
+        for name in ["Videos", "Static", "2026", "WC[2]_x", "Bubble_Blast_1_9x16_23.05.25_EN.mp4"]:
+            self.assertIsNone(naming.prefix_and_id(name), name)
+
+
 class ParseFilename(unittest.TestCase):
     def test_plain(self):
         p = naming.parse_filename("BW001_v1_9x16_59s_EN.mp4")

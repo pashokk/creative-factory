@@ -30,6 +30,9 @@ FILE_RE = re.compile(
 )
 
 
+FOLDER_RE = re.compile(r"^(?P<prefix>[A-Z]{2}\d*)\[(?P<id>\d{3})\]_")
+
+
 @dataclass(frozen=True)
 class ParsedName:
     prefix: str
@@ -95,14 +98,23 @@ def parse_filename(filename: str) -> Optional[ParsedName]:
     )
 
 
+def prefix_and_id(name: str) -> Optional[tuple[str, int]]:
+    """(prefix, id) from a creative file name or a creative folder name, else None."""
+    parsed = parse_filename(name)
+    if parsed:
+        return parsed.prefix, parsed.id
+    m = FOLDER_RE.match(name)
+    return (m["prefix"], int(m["id"])) if m else None
+
+
 def build_prefix_map(games: Mapping[str, Iterable[str]]) -> dict[str, str]:
     """prefix -> normalized game name, from {game name: filenames on Drive}."""
     prefixes: dict[str, str] = {}
     for game, filenames in games.items():
         for filename in filenames:
-            parsed = parse_filename(filename)
-            if parsed:
-                prefixes.setdefault(parsed.prefix, normalize_game(game))
+            found = prefix_and_id(filename)
+            if found:
+                prefixes.setdefault(found[0], normalize_game(game))
     return prefixes
 
 

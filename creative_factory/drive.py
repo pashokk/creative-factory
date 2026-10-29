@@ -124,6 +124,12 @@ class Drive:
         return self._json("POST", "files", {"fields": "id"},
                           {"name": name, "mimeType": FOLDER, "parents": [parent_id]})["id"]
 
+    def find_folder_ci(self, parent_id: str, names: tuple[str, ...]) -> Optional[str]:
+        """Id of the first child folder whose name matches one of names, ignoring case."""
+        wanted = [n.casefold() for n in names]
+        by_name = {f["name"].casefold(): f["id"] for f in self.children(parent_id, folders_only=True)}
+        return next((by_name[n] for n in wanted if n in by_name), None)
+
     def ensure_path(self, parent_id: str, *names: str) -> str:
         for name in names:
             parent_id = self.ensure_folder(parent_id, name)
@@ -181,7 +187,11 @@ class Drive:
 
 
 def games_from_listing(root_id: str, folders: dict[str, dict], files: Iterable[dict]) -> dict[str, list[str]]:
-    """Group mp4 names by the top-level folder (game) they live under."""
+    """Group creative names by the top-level folder (game) they live under.
+
+    Names are mp4 file names and creative folder names (XY[001]_Concept_(date)), because a folder
+    can hold an id before any conventionally named file exists.
+    """
     def game_of(parent_id: str) -> Optional[str]:
         seen = set()
         while parent_id in folders and parent_id not in seen:
@@ -193,8 +203,10 @@ def games_from_listing(root_id: str, folders: dict[str, dict], files: Iterable[d
         return None
 
     games: dict[str, list[str]] = {}
-    for f in files:
-        if naming.parse_filename(f["name"]) is None:
+    items = [{"name": f["name"], "parents": f.get("parents")} for f in files] + \
+            [{"name": f["name"], "parents": f.get("parents")} for f in folders.values()]
+    for f in items:
+        if naming.prefix_and_id(f["name"]) is None:
             continue
         game = game_of((f.get("parents") or [""])[0])
         if game:

@@ -148,8 +148,8 @@ def create_game(name: str = Form(...), user: str = Depends(current_user)):
     if drive.find_child(DRIVE_ROOT_ID, name, folder=True):
         raise HTTPException(409, "a game with this name already exists")
     gid = drive.ensure_folder(DRIVE_ROOT_ID, name)
-    for sub in ("ASO", "Assets", "Creatives"):
-        drive.ensure_path(gid, _year(), sub)
+    for sub in ("ASO", "Assets", "Creatives/Videos", "Creatives/Static"):
+        drive.ensure_path(gid, _year(), *sub.split("/"))
     _cache.pop("games", None)
     return {"id": gid, "name": name}
 

@@ -22,8 +22,15 @@ class GamesFromListing(unittest.TestCase):
             {"name": "MS012_v1_9x16_45s_EN.mp4", "parents": ["v2"]},
         ]
         games = games_from_listing(ROOT, FOLDERS, files)
-        self.assertEqual(sorted(games["Word Cipher"]), ["WC001_v1_4x5_51s_EN.mp4", "WC001_v1_9x16_51s_EN.mp4"])
+        self.assertEqual(sorted(games["Word Cipher"]),
+                         ["WC001_v1_4x5_51s_EN.mp4", "WC001_v1_9x16_51s_EN.mp4", "WC[001]_Concept_(22.10.26)"])
         self.assertEqual(games["Minesweeper"], ["MS012_v1_9x16_45s_EN.mp4"])
+
+    def test_folder_names_count_even_without_files(self):
+        folders = {**FOLDERS, "k2": {"id": "k2", "name": "WC[002]_Other_(23.10.26)", "parents": ["c1"]},
+                   "k3": {"id": "k3", "name": "Videos", "parents": ["c1"]}}
+        games = games_from_listing(ROOT, folders, [])
+        self.assertEqual(sorted(games["Word Cipher"]), ["WC[001]_Concept_(22.10.26)", "WC[002]_Other_(23.10.26)"])
 
     def test_ignores_unconventional_names_and_orphans(self):
         files = [
@@ -31,7 +38,8 @@ class GamesFromListing(unittest.TestCase):
             {"name": "WC002_v1_9x16_51s_EN.mp4", "parents": ["x"]},
             {"name": "WC003_v1_9x16_51s_EN.mp4", "parents": []},
         ]
-        self.assertEqual(games_from_listing(ROOT, FOLDERS, files), {})
+        # only the conventionally named folder counts; the odd file names and orphans are ignored
+        self.assertEqual(games_from_listing(ROOT, FOLDERS, files), {"Word Cipher": ["WC[001]_Concept_(22.10.26)"]})
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from a Drive scan about once a week; new prefixes and ids are recorded
 immediately, under an exclusive file lock, so two tasks starting at once never
 get the same id.
 
-The scan is injected (a callable returning {game name: filenames}) so this
+The scan is injected (a callable returning {game name: file and folder names}) so this
 module has no Drive dependency.
 """
 
@@ -71,11 +71,11 @@ class Registry:
             state["prefixes"].setdefault(prefix, game)
         for filenames in games.values():
             for filename in filenames:
-                parsed = naming.parse_filename(filename)
-                if parsed:
-                    ids = state["ids"].setdefault(parsed.prefix, [])
-                    if parsed.id not in ids:
-                        ids.append(parsed.id)
+                found = naming.prefix_and_id(filename)
+                if found:
+                    ids = state["ids"].setdefault(found[0], [])
+                    if found[1] not in ids:
+                        ids.append(found[1])
         state["scanned_at"] = self.clock()
 
     def refresh(self, force: bool = False) -> None:

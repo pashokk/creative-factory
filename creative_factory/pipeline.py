@@ -20,6 +20,7 @@ from .registry import Registry
 
 FONT = "/usr/share/fonts/opentype/inter/Inter-Bold.otf"
 ENDCARD_S = 5.0
+VIDEO_FOLDERS = ("Videos", "Video")
 FPS = 30
 RATIOS = {"9x16": (1080, 1920), "4x5": (1080, 1350), "16x9": (1920, 1080)}
 MIN_TOTAL_S, MAX_TOTAL_S = 30, 58  # never 60 s; one second of slack under the 59 s limit
@@ -252,7 +253,9 @@ def run_job(spec: JobSpec, drive: Drive, registry: Registry, work: str, say: Pro
 
     say("Creating the Drive folder")
     folder_name = naming.folder_name(prefix, creative_id, spec.concept, today)
-    folder_id = drive.ensure_path(spec.game_folder_id, str(today.year), "Creatives", folder_name)
+    creatives = drive.ensure_path(spec.game_folder_id, str(today.year), "Creatives")
+    videos = drive.find_folder_ci(creatives, VIDEO_FOLDERS)  # games set up with Creatives/Videos keep videos there
+    folder_id = drive.ensure_folder(videos or creatives, folder_name)
 
     files = []
     for ratio in spec.ratios:
