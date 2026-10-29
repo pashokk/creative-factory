@@ -18,7 +18,7 @@ Read first:
 
 ## Credentials (never print, log or commit them)
 - ElevenLabs: host-scoped network secret for `api.elevenlabs.io`, header `xi-api-key`, no prefix. Code calls the API without a key; the proxy adds it.
-- Google Drive: environment variable `GOOGLE_SERVICE_ACCOUNT_JSON` (service account in project appodeal-395422, Appodeal Accelerator). The Google APIs are reachable from the container; `drive.google.com` is not, so use the Drive API v3 with the service account. The Drive MCP tool refuses files over 10 MB.
+- Google Drive: environment variable `GOOGLE_SERVICE_ACCOUNT_B64` holds the service account key JSON, base64-encoded on one line (decode it in code; dotenv cannot hold the multi-line JSON). Service account in project appodeal-395422, Appodeal Accelerator. Environment variables are visible to anyone using the environment, so keep the key's reach small: it can only see Drive folders shared with the service account. The Google APIs are reachable from the container; `drive.google.com` is not, so use the Drive API v3 with the service account. The Drive MCP tool refuses files over 10 MB.
 
 ## Drive references
 - Footage (4 mp4, 11-48 MB, Word Cipher): folder `1dq8TeCdiM2muTAiFUInF3a-VlxSm3ThY`.
