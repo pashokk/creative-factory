@@ -27,6 +27,7 @@ Folder: `XY[001]_ConceptName_(DD.MM.YY)`.
 - `creative_factory/naming.py`: prefix derivation and collision handling, id counter, file and folder names, filename parsing.
 - `creative_factory/sizing.py`: bitrate budget that keeps a render under the size limit.
 - `creative_factory/qa.py`: QA gate (duration, size, ratio, audio present, name matches the video); `probe()` reads a file with `ffprobe`.
+- `creative_factory/registry.py`: JSON cache of used prefixes and ids with a file lock, weekly injected Drive scan, atomic `reserve(game)`.
 
 ## Develop
 
@@ -38,6 +39,6 @@ python3 -m unittest discover -s tests -t .
 
 ## Not built yet
 
-Atomic id reservation and the Drive prefix scan, footage analysis, script and hook planning, ElevenLabs voice and music, the cut and resize render, Drive upload, the web UI.
+The Drive scan function itself (the registry takes it as a callable), footage analysis, script and hook planning, ElevenLabs voice and music, the cut and resize render, Drive upload, the web UI.
 
 The ElevenLabs key is a host-scoped network secret for `api.elevenlabs.io` (header `xi-api-key`); code calls the API without a key and the proxy adds it.
