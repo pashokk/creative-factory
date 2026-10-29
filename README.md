@@ -40,7 +40,7 @@ Folder: `XY[001]_ConceptName_(DD.MM.YY)`.
 - Renders go to `Game/year/Creatives/XY[id]_Concept_(DD.MM.YY)/`. The service holds no state between jobs except the registry cache and job history in `DATA_DIR`.
 - Sign-in is Google OAuth restricted to `ALLOWED_DOMAIN` (default appodeal.com). One render runs at a time.
 
-Deploy on Coolify from this repo with the Dockerfile; set the variables from `.env.example` (OAuth redirect URI: `BASE_URL/auth/callback`) and mount a persistent volume at `/data`. Run one replica only.
+Deploy on Coolify from this repo with the Dockerfile; set the variables from `.env.example` (including `ELEVENLABS_API_KEY`: outside the Claude sandbox there is no key-injecting proxy) (OAuth redirect URI: `BASE_URL/auth/callback`) and mount a persistent volume at `/data`. Run one replica only.
 
 Local run (no Google sign-in): `DEV_USER=you@appodeal.com DATA_DIR=./data uvicorn creative_factory.web:app --port 8000`.
 

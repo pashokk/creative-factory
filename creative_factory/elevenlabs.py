@@ -1,6 +1,11 @@
-"""ElevenLabs calls. The network proxy adds the real xi-api-key; code never holds it."""
+"""ElevenLabs calls.
+
+In the Claude sandbox a network proxy injects the real xi-api-key, so the code sends a
+placeholder. Anywhere else (Coolify) set ELEVENLABS_API_KEY and it is sent instead.
+"""
 
 import json
+import os
 import urllib.error
 import urllib.request
 
@@ -17,7 +22,7 @@ class ElevenLabsError(RuntimeError):
 def _call(path: str, payload=None, timeout: int = 180) -> bytes:
     body = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(HOST + path, body, {"content-type": "application/json",
-                                                     "xi-api-key": PLACEHOLDER_KEY})
+                                                     "xi-api-key": os.environ.get("ELEVENLABS_API_KEY") or PLACEHOLDER_KEY})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read()
