@@ -201,7 +201,7 @@ class Agentcore(unittest.TestCase):
 class FakeMetadataServer:
     """An EC2-metadata-style endpoint whose credentials carry the given Expiration."""
 
-    def __init__(self, expiration, token_supported=True):
+    def __init__(self, expiration, token_supported=True, token_field="Token", key="AKIATEST"):
         import threading
         from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -226,7 +226,7 @@ class FakeMetadataServer:
                     return self.reply("", 401)
                 if self.path.rstrip("/").endswith("security-credentials"):
                     return self.reply("some-role\n")
-                creds = {"Code": "Success", "AccessKeyId": "AKIATEST", "SecretAccessKey": "secret", "Token": "sess"}
+                creds = {"Code": "Success", "AccessKeyId": key, "SecretAccessKey": "secret", token_field: "sess"}
                 if outer.expiration is not None:
                     creds["Expiration"] = outer.expiration
                 self.reply(json.dumps(creds))
@@ -255,6 +255,19 @@ class MetadataCredentials(unittest.TestCase):
         self.addCleanup(server.close)
         with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url}):
             self.assertEqual(analysis._imds_credentials()["aws_access_key_id"], "AKIATEST")
+
+    def test_accepts_the_other_spelling_of_the_session_token_field(self):
+        server = FakeMetadataServer("0001-01-01T00:00:00Z", token_field="SessionToken", key="ASIATEST")
+        self.addCleanup(server.close)
+        with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url}):
+            self.assertEqual(analysis._imds_credentials()["aws_session_token"], "sess")
+
+    def test_temporary_keys_without_any_session_token_are_a_clear_error(self):
+        server = FakeMetadataServer("0001-01-01T00:00:00Z", token_field="Nope", key="ASIATEST")
+        self.addCleanup(server.close)
+        with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url}):
+            with self.assertRaisesRegex(analysis.AnalysisError, "temporary keys without a session token"):
+                analysis._imds_credentials()
 
     def test_no_endpoint_means_none_and_a_dead_endpoint_is_a_clear_error(self):
         with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": ""}):

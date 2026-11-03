@@ -209,11 +209,20 @@ def _imds_credentials() -> Optional[dict]:
     try:
         role = call("/latest/meta-data/iam/security-credentials/", headers=headers).split()[0]
         data = json.loads(call(f"/latest/meta-data/iam/security-credentials/{role}", headers=headers))
-        print(f"[analysis] metadata credentials for role {role}, Expiration={data.get('Expiration')!r}", flush=True)
-        return {"aws_access_key_id": data["AccessKeyId"], "aws_secret_access_key": data["SecretAccessKey"],
-                "aws_session_token": data.get("Token")}
-    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
+    except (urllib.error.URLError, OSError, ValueError, IndexError) as e:
         raise AnalysisError(f"could not read AWS credentials from the metadata endpoint: {e}") from None
+    if not isinstance(data, dict):
+        raise AnalysisError("the metadata endpoint did not return a credentials object")
+    fields = {str(k).lower(): v for k, v in data.items()}  # field names only, never values, go to the log
+    print(f"[analysis] metadata credentials for role {role}: fields={sorted(data)}, Expiration={data.get('Expiration')!r}",
+          flush=True)
+    key, secret = fields.get("accesskeyid"), fields.get("secretaccesskey")
+    token = fields.get("token") or fields.get("sessiontoken") or None
+    if not key or not secret:
+        raise AnalysisError(f"the metadata endpoint's credentials lack AccessKeyId or SecretAccessKey (fields: {sorted(data)})")
+    if str(key).startswith("ASIA") and not token:  # temporary keys are useless without their session token
+        raise AnalysisError(f"the metadata endpoint returned temporary keys without a session token (fields: {sorted(data)})")
+    return {"aws_access_key_id": key, "aws_secret_access_key": secret, "aws_session_token": token}
 
 
 def _agentcore(payload: dict) -> str:
