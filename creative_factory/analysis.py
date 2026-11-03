@@ -180,6 +180,42 @@ def parse_planner_reply(raw: str) -> dict:
     return {"state": state, "text": prose, "plan": plan}
 
 
+def _imds_credentials() -> Optional[dict]:
+    """Credentials read straight from the metadata endpoint, or None when none is configured.
+
+    boto3 reads them itself, but it chokes on an expiry such as 0001-01-01T00:00:00Z (a Go zero time, sent
+    by endpoints with no real expiry): "date value out of range". This reads the same JSON and ignores the
+    expiry, so the call still works; every call asks again, which costs one local request.
+    """
+    base = os.environ.get("AWS_EC2_METADATA_SERVICE_ENDPOINT", "").strip().rstrip("/")
+    if not base:
+        return None
+    try:
+        timeout = float(os.environ.get("AWS_METADATA_SERVICE_TIMEOUT") or 5)
+    except ValueError:
+        timeout = 5.0
+
+    def call(path: str, method: str = "GET", headers: Optional[dict] = None) -> str:
+        req = urllib.request.Request(base + path, method=method, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+
+    headers: dict = {}
+    try:  # IMDSv2 token; an endpoint without one answers the plain requests
+        headers = {"X-aws-ec2-metadata-token": call("/latest/api/token", "PUT",
+                                                    {"X-aws-ec2-metadata-token-ttl-seconds": "300"})}
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    try:
+        role = call("/latest/meta-data/iam/security-credentials/", headers=headers).split()[0]
+        data = json.loads(call(f"/latest/meta-data/iam/security-credentials/{role}", headers=headers))
+        print(f"[analysis] metadata credentials for role {role}, Expiration={data.get('Expiration')!r}", flush=True)
+        return {"aws_access_key_id": data["AccessKeyId"], "aws_secret_access_key": data["SecretAccessKey"],
+                "aws_session_token": data.get("Token")}
+    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
+        raise AnalysisError(f"could not read AWS credentials from the metadata endpoint: {e}") from None
+
+
 def _agentcore(payload: dict) -> str:
     import uuid
 
@@ -187,14 +223,24 @@ def _agentcore(payload: dict) -> str:
     from botocore.config import Config
     from botocore.exceptions import BotoCoreError, ClientError
 
-    client = boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION") or "us-east-1",
-                          config=Config(connect_timeout=10, read_timeout=360,
-                                        retries={"total_max_attempts": 2, "mode": "standard"}))
-    try:
-        response = client.invoke_agent_runtime(
+    config = Config(connect_timeout=10, read_timeout=360, retries={"total_max_attempts": 2, "mode": "standard"})
+    region = os.environ.get("AWS_REGION") or "us-east-1"
+
+    def invoke(**creds):
+        client = boto3.client("bedrock-agentcore", region_name=region, config=config, **creds)
+        return client.invoke_agent_runtime(
             agentRuntimeArn=os.environ["PLANNER_RUNTIME_ARN"].strip(),
             runtimeSessionId=f"creative-factory-{uuid.uuid4().hex}",  # AgentCore wants at least 33 characters
             payload=json.dumps(payload, separators=(",", ":")).encode())
+
+    try:
+        try:
+            response = invoke()
+        except (OverflowError, ValueError) as e:  # boto3 could not read the credentials' expiry (see above)
+            creds = _imds_credentials()
+            if creds is None:
+                raise AnalysisError(f"AWS credentials could not be read: {e}") from None
+            response = invoke(**creds)
         raw = response["response"].read()
     except ClientError as e:
         err = e.response.get("Error", {})

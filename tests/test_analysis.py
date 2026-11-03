@@ -198,6 +198,116 @@ class Agentcore(unittest.TestCase):
                 analysis._agentcore({"mode": "plan"})
 
 
+class FakeMetadataServer:
+    """An EC2-metadata-style endpoint whose credentials carry the given Expiration."""
+
+    def __init__(self, expiration, token_supported=True):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def reply(self, body, code=200):
+                data = body.encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_PUT(self):
+                self.reply("tok" if token_supported else "", 200 if token_supported else 404)
+
+            def do_GET(self):
+                if token_supported and self.headers.get("X-aws-ec2-metadata-token") != "tok":
+                    return self.reply("", 401)
+                if self.path.rstrip("/").endswith("security-credentials"):
+                    return self.reply("some-role\n")
+                creds = {"Code": "Success", "AccessKeyId": "AKIATEST", "SecretAccessKey": "secret", "Token": "sess"}
+                if outer.expiration is not None:
+                    creds["Expiration"] = outer.expiration
+                self.reply(json.dumps(creds))
+
+        self.expiration = expiration
+        self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+class MetadataCredentials(unittest.TestCase):
+    def test_reads_credentials_whatever_the_expiry_looks_like(self):
+        for expiration in ("0001-01-01T00:00:00Z", "9999-12-31T23:59:59Z", "1893456000000", None):
+            server = FakeMetadataServer(expiration)
+            self.addCleanup(server.close)
+            with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url}):
+                self.assertEqual(analysis._imds_credentials(), {
+                    "aws_access_key_id": "AKIATEST", "aws_secret_access_key": "secret", "aws_session_token": "sess"},
+                    expiration)
+
+    def test_works_with_an_endpoint_that_has_no_token_step(self):
+        server = FakeMetadataServer("0001-01-01T00:00:00Z", token_supported=False)
+        self.addCleanup(server.close)
+        with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url}):
+            self.assertEqual(analysis._imds_credentials()["aws_access_key_id"], "AKIATEST")
+
+    def test_no_endpoint_means_none_and_a_dead_endpoint_is_a_clear_error(self):
+        with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": ""}):
+            self.assertIsNone(analysis._imds_credentials())
+        with mock.patch.dict(os.environ, {"AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://127.0.0.1:9/",
+                                          "AWS_METADATA_SERVICE_TIMEOUT": "1"}):
+            with self.assertRaisesRegex(analysis.AnalysisError, "could not read AWS credentials"):
+                analysis._imds_credentials()
+
+    def test_the_call_is_retried_with_those_credentials_when_boto3_cannot_read_the_expiry(self):
+        import io
+
+        import boto3
+        from botocore.response import StreamingBody
+        from botocore.stub import Stubber
+
+        body = sse({"type": "finish", "output": PLAN_TEXT % json.dumps(AGENT_PLAN)}).encode()
+        good = boto3.client("bedrock-agentcore", region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="y")
+        stub = Stubber(good)
+        stub.add_response("invoke_agent_runtime", {"response": StreamingBody(io.BytesIO(body), len(body)),
+                                                   "contentType": "text/event-stream"})
+        stub.activate()
+
+        class Failing:  # what boto3 does with a 0001-01-01 expiry
+            def invoke_agent_runtime(self, **kwargs):
+                raise OverflowError("date value out of range")
+
+        server = FakeMetadataServer("0001-01-01T00:00:00Z")
+        self.addCleanup(server.close)
+        made = []
+
+        def fake_client(*args, **kwargs):
+            made.append(kwargs.get("aws_access_key_id"))
+            return Failing() if len(made) == 1 else good
+
+        env = {"AWS_EC2_METADATA_SERVICE_ENDPOINT": server.url,
+               "PLANNER_RUNTIME_ARN": "arn:aws:bedrock-agentcore:us-east-1:1:runtime/x-AbC123xyz9"}
+        with mock.patch.dict(os.environ, env), mock.patch("boto3.client", side_effect=fake_client):
+            raw = analysis._agentcore({"mode": "plan"})
+        self.assertEqual(made, [None, "AKIATEST"])  # first with boto3's own lookup, then with the fetched keys
+        self.assertEqual(analysis.parse_planner_reply(raw)["state"], "Ready")
+
+    def test_an_unreadable_expiry_without_an_endpoint_is_a_clear_error(self):
+        class Failing:
+            def invoke_agent_runtime(self, **kwargs):
+                raise OverflowError("date value out of range")
+
+        env = {"AWS_EC2_METADATA_SERVICE_ENDPOINT": "", "PLANNER_RUNTIME_ARN": "arn:x"}
+        with mock.patch.dict(os.environ, env), mock.patch("boto3.client", return_value=Failing()):
+            with self.assertRaisesRegex(analysis.AnalysisError, "credentials could not be read: date value out of range"):
+                analysis._agentcore({"mode": "plan"})
+
+
 class ProviderChoice(unittest.TestCase):
     def setUp(self):
         self.saved = {k: os.environ.pop(k, None) for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANALYSIS_PROVIDER", "PLANNER_RUNTIME_ARN")}
